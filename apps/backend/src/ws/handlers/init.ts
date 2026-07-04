@@ -530,17 +530,28 @@ export async function handleInit(
   const existingWs = conn.wsMap.get(conn.interviewId);
   if (existingWs && existingWs.readyState === 1 /* OPEN */) {
     console.log(
-      `[init] duplicate WS for ${conn.interviewId} — closing old session, rejecting new`,
+      `[init] duplicate WS for ${conn.interviewId} — keeping existing session, rejecting new`,
     );
-    try {
-      existingWs.close();
-    } catch {
-      /* already closing */
-    }
     await conn.safeSend({
       error:
         "Interview already in progress in another tab. Please close the other tab and return to this one.",
     });
+    conn.interviewId = null;
+    conn.client.close();
+    return;
+  }
+
+  // Race guard: if the interview is being cleaned up (old WS disconnected,
+  // cleanup hasn't finished DB writes), reject the new connection to prevent
+  // a fresh Gemini session from starting during finalization.
+  if (conn.cleaningSet.has(conn.interviewId)) {
+    console.log(
+      `[init] rejecting WS for ${conn.interviewId} — cleanup in progress`,
+    );
+    await conn.safeSend({
+      error: "Interview is ending, please wait.",
+    });
+    conn.interviewId = null;
     conn.client.close();
     return;
   }

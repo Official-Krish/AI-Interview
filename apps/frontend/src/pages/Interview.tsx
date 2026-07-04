@@ -64,8 +64,6 @@ export function InterviewPage() {
   const endedRef = useRef(false);
   const dsaLastTransitionRef = useRef(-1);
   const dsaPendingRef = useRef<{ index?: number | null } | null>(null);
-  const isDsaRef = useRef(false);
-  const sdFullProblemTextRef = useRef("");
 
   const [isConnecting, setIsConnecting] = useState(true);
   const [closing, setClosing] = useState(false);
@@ -155,7 +153,10 @@ export function InterviewPage() {
   useEffect(() => {
     canvasQuestionsRef.current = canvasQuestions;
   }, [canvasQuestions]);
-  const [, setCanvasCurrentQuestionIndex] = useState(0);
+  const canvasCurrentQuestionIndexRef = useRef(0);
+  const setCanvasCurrentQuestionIndex = (val: number) => {
+    canvasCurrentQuestionIndexRef.current = val;
+  };
   const sdPanelVisible = isSystemDesign || isDiscussion;
 
   // Load DSA / SD session on mount
@@ -304,7 +305,6 @@ export function InterviewPage() {
       setSdStarting(false);
       if (data.title && data.description) {
         setSdTopic({ title: data.title, description: data.description });
-        sdFullProblemTextRef.current = data.fullBreakdown;
         setSdFullProblemText(data.fullBreakdown);
       }
       if (!sdConnectedRef.current) {
@@ -338,7 +338,6 @@ export function InterviewPage() {
         setCanvasCurrentQuestionIndex(0);
         const first = questions[0]!;
         setSdTopic({ title: first.title, description: first.description });
-        sdFullProblemTextRef.current = first.fullBreakdown;
         setSdFullProblemText(first.fullBreakdown);
       }
       if (!sdConnectedRef.current) {
@@ -372,7 +371,6 @@ export function InterviewPage() {
         setCanvasCurrentQuestionIndex(0);
         const first = questions[0]!;
         setSdTopic({ title: first.title, description: first.description });
-        sdFullProblemTextRef.current = first.fullBreakdown;
         setSdFullProblemText(first.fullBreakdown);
       }
       if (!sdConnectedRef.current) {
@@ -539,14 +537,12 @@ export function InterviewPage() {
   const isUserSpeakingRef = useRef(false);
   const closingRef = useRef(false);
   const feedbackReadyRef = useRef(false);
-  const micActiveRef = useRef(micActive);
   const mountedRef = useRef(true);
+  const connectedRef = useRef(false);
+  const connectingRef = useRef(false);
   useEffect(() => {
     phaseRef.current = phase;
   }, [phase]);
-  useEffect(() => {
-    micActiveRef.current = micActive;
-  }, [micActive]);
   useEffect(() => {
     const wasSpeaking = aiSpeakingRef.current;
     aiSpeakingRef.current = aiPlaying;
@@ -561,10 +557,6 @@ export function InterviewPage() {
   useEffect(() => {
     feedbackReadyRef.current = feedbackReady;
   }, [feedbackReady]);
-
-  useEffect(() => {
-    isDsaRef.current = isDsa || isSystemDesign || isDiscussion;
-  }, [isDsa, isSystemDesign, isDiscussion]);
 
   useEffect(() => {
     document.documentElement.classList.add("landing-active");
@@ -589,7 +581,17 @@ export function InterviewPage() {
   }, [teardown]);
 
   const connectSocket = useCallback(async () => {
-    if (!user || !id || endedRef.current) return;
+    if (
+      !user ||
+      !id ||
+      endedRef.current ||
+      connectedRef.current ||
+      connectingRef.current
+    ) {
+      return;
+    }
+
+    connectingRef.current = true;
 
     let wsToken: string;
     try {
@@ -597,6 +599,7 @@ export function InterviewPage() {
       wsToken = res.token;
     } catch {
       toast.error("Authentication failed");
+      connectingRef.current = false;
       return;
     }
 
@@ -629,7 +632,7 @@ export function InterviewPage() {
     socket.on("transcript:assistant", () => {
       if (endedRef.current) return;
       if (!turnCompletedRef.current) {
-        turnCompletedRef.current = false;
+        turnCompletedRef.current = true;
         setAiTurnActive(true);
       }
     });
@@ -677,7 +680,18 @@ export function InterviewPage() {
       if (audioBase64 && !endedRef.current) {
         aiSpeakingRef.current = true;
         playPcm(audioBase64);
-        setAiTurnActive(true);
+        if (!turnCompletedRef.current) {
+          setAiTurnActive(true);
+        }
+      }
+
+      // Gemini signals the current AI response was interrupted
+      // (user started speaking). Stop playback and reset state.
+      if (sc.interrupted && !endedRef.current) {
+        aiSpeakingRef.current = false;
+        stopAudio();
+        setAiTurnActive(false);
+        turnCompletedRef.current = false;
       }
 
       if (turnComplete && outputText) {
@@ -696,9 +710,8 @@ export function InterviewPage() {
               socketRef.current?.sendEndInterview();
             }
           }, 800);
-        } else if (!audioBase64) {
-          setAiTurnActive(false);
         }
+        setAiTurnActive(false);
       }
 
       if (turnComplete && inputText) {
@@ -795,7 +808,6 @@ export function InterviewPage() {
       if (questions && msg.questionIndex < questions.length) {
         const q = questions[msg.questionIndex]!;
         setSdTopic({ title: q.title, description: q.description });
-        sdFullProblemTextRef.current = q.fullBreakdown;
         setSdFullProblemText(q.fullBreakdown);
         setCanvasDiff(null);
         toast(`Moving to question ${msg.questionIndex + 1}`, {
@@ -873,7 +885,12 @@ export function InterviewPage() {
       }
     });
 
-    await socket.connect(id);
+    try {
+      await socket.connect(id);
+      connectedRef.current = true;
+    } finally {
+      connectingRef.current = false;
+    }
   }, [user, id, playPcm, stopAudio, teardown, navigate, stopMic]);
 
   useEffect(() => {
@@ -885,7 +902,15 @@ export function InterviewPage() {
         toast.error(err.message);
       }
     });
-  }, [connectSocket, interviewMeta, isSystemDesign, isDiscussion]);
+    return () => {
+      // Only close if connection never succeeded — real unmount is handled
+      // by the mountedRef effect which calls teardown().
+      if (!connectedRef.current) {
+        socketRef.current?.forceClose();
+        socketRef.current = null;
+      }
+    };
+  }, [connectSocket, !!interviewMeta, isSystemDesign, isDiscussion]);
 
   useEffect(() => {
     if (phase === "ended" || phase === "connecting" || phase === "queued")

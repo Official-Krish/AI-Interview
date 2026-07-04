@@ -85,6 +85,7 @@ export class InterviewConnection {
 
   // Function calling
   lastFunctionHash: string | null = null; // dedup: hash of last function call name + args
+  canceledToolCallIds = new Set<string>();
 
   // Pacing system
   pacing: PacingTracker | null = null;
@@ -110,6 +111,7 @@ export class InterviewConnection {
     readonly client: WsWebSocket,
     readonly wsMap: Map<string, WsWebSocket>,
     readonly startCallbacks: Map<string, () => Promise<void>>,
+    readonly cleaningSet: Set<string>,
     readonly onDequeue: () => Promise<void>,
     readonly onPositionUpdate: () => Promise<void>,
   ) {

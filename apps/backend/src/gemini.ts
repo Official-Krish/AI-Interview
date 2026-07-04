@@ -8,13 +8,6 @@ export interface GeminiSession {
     listener: (...args: unknown[]) => void,
   ): this;
   send(data: string): void;
-  sendToolResponse(
-    functionResponses: {
-      name: string;
-      id: string;
-      response: Record<string, unknown>;
-    }[],
-  ): void;
   close(): void;
 }
 
@@ -84,22 +77,6 @@ class GeminiSessionAdapter implements GeminiSession {
     }
   }
 
-  sendToolResponse(
-    functionResponses: {
-      name: string;
-      id: string;
-      response: Record<string, unknown>;
-    }[],
-  ) {
-    try {
-      this.session.sendToolResponse({
-        functionResponses,
-      });
-    } catch (err) {
-      console.error("[gemini adapter] sendToolResponse failed:", err);
-    }
-  }
-
   close() {
     try {
       this.session.close();
@@ -109,11 +86,21 @@ class GeminiSessionAdapter implements GeminiSession {
   }
 }
 
-export async function createGeminiSession(systemPrompt: string) {
+export async function createGeminiSession(
+  systemPrompt: string,
+  enabledToolNames?: string[],
+) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY env not set");
   const bus = new EventEmitter();
   bus.setMaxListeners(20);
+
+  const filteredDeclarations =
+    enabledToolNames === undefined
+      ? FUNCTION_DECLARATIONS
+      : FUNCTION_DECLARATIONS.filter((fd: { name: string }) =>
+          enabledToolNames.includes(fd.name),
+        );
 
   const session = await ai.live.connect({
     model: "gemini-2.5-flash-native-audio-preview-12-2025",
@@ -121,7 +108,7 @@ export async function createGeminiSession(systemPrompt: string) {
       responseModalities: [Modality.AUDIO],
       outputAudioTranscription: {},
       systemInstruction: systemPrompt,
-      tools: [{ functionDeclarations: FUNCTION_DECLARATIONS }],
+      tools: [{ functionDeclarations: filteredDeclarations }],
     },
     callbacks: {
       onmessage: (message) => {
@@ -138,12 +125,9 @@ export async function createGeminiSession(systemPrompt: string) {
             const hasFnCall = message.serverContent.modelTurn.parts.some(
               (p) => "functionCall" in p,
             );
-            // Only log non-audio-only messages to reduce noise
-            if (hasText || hasFnCall || message.serverContent.turnComplete) {
-              console.log(
-                `[gemini SDK] serverContent turnComplete=${!!message.serverContent.turnComplete} audio=${hasAudio} text=${hasText} functionCall=${hasFnCall}`,
-              );
-            }
+            console.log(
+              `[gemini SDK] serverContent turnComplete=${!!message.serverContent.turnComplete} audio=${hasAudio} text=${hasText} functionCall=${hasFnCall} parts=${message.serverContent.modelTurn.parts.length}`,
+            );
           } else if (message.serverContent?.turnComplete) {
             console.log("[gemini SDK] turnComplete (no parts)");
           } else {

@@ -1,4 +1,5 @@
 import { removeFromQueue, releaseSlot } from "../../lib/queue";
+import { prisma } from "../../lib/prisma";
 import { finalizeInterview } from "../finalize";
 import type { InterviewConnection } from "../session";
 import { stopHeartbeat } from "./heartbeat";
@@ -30,8 +31,27 @@ export async function cleanup(conn: InterviewConnection, reason?: string) {
         conn.wsMap.delete(conn.interviewId);
         conn.startCallbacks.delete(conn.interviewId);
         await conn.onPositionUpdate();
+      } else if (reason === "gemini_close_retryable" && !conn.finalized) {
+        conn.finalized = true;
+        console.warn(
+          `[ws] Gemini closed during active interview ${conn.interviewId}; marking FAILED instead of evaluating`,
+        );
+        await prisma.interviewSession
+          .update({
+            where: { id: conn.interviewId },
+            data: { status: "FAILED", endedAt: new Date() },
+          })
+          .catch((err) => {
+            console.error("[ws] failed to mark interview FAILED:", err);
+          });
+
+        await releaseSlot(conn.interviewId);
+        conn.wsMap.delete(conn.interviewId);
+        conn.startCallbacks.delete(conn.interviewId);
+        await conn.onDequeue();
       } else if (!conn.finalized) {
         conn.finalized = true;
+        conn.cleaningSet.add(conn.interviewId);
         if (isChallengeMode(conn) && conn.currentTurnId) {
           await flushChallengeTurn(conn);
         } else if (conn.questionBuf) {
@@ -58,6 +78,7 @@ export async function cleanup(conn: InterviewConnection, reason?: string) {
         await releaseSlot(conn.interviewId);
         conn.wsMap.delete(conn.interviewId);
         conn.startCallbacks.delete(conn.interviewId);
+        conn.cleaningSet.delete(conn.interviewId);
         await conn.onDequeue();
       }
     }
@@ -68,6 +89,9 @@ export async function cleanup(conn: InterviewConnection, reason?: string) {
     }
     conn.gemini?.close();
   } catch (err) {
+    if (conn.interviewId) {
+      conn.cleaningSet.delete(conn.interviewId);
+    }
     console.error(`[ws] cleanup error (reason=${reason ?? "unknown"}):`, err);
   }
 }

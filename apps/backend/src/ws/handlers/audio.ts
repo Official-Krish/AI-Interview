@@ -6,6 +6,40 @@ import {
   mergeAnswerBuf,
 } from "../helpers/turn";
 
+const PCM_MIME_TYPE = "audio/pcm;rate=16000";
+const BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
+
+function normalizePcmBase64(data: unknown) {
+  if (typeof data !== "string" || data.length === 0) {
+    return null;
+  }
+
+  if (data.length % 4 !== 0 || !BASE64_RE.test(data)) {
+    return null;
+  }
+
+  const pcm = Buffer.from(data, "base64");
+  if (pcm.length === 0 || pcm.length % 2 !== 0) {
+    return null;
+  }
+
+  return {
+    data: pcm.toString("base64"),
+    byteLength: pcm.length,
+    rms: calculateRms(pcm),
+  };
+}
+
+function calculateRms(pcm: Buffer) {
+  let sumSquares = 0;
+  const sampleCount = pcm.length / 2;
+  for (let offset = 0; offset < pcm.length; offset += 2) {
+    const sample = pcm.readInt16LE(offset) / 0x8000;
+    sumSquares += sample * sample;
+  }
+  return sampleCount > 0 ? Math.sqrt(sumSquares / sampleCount) : 0;
+}
+
 export async function handleAudioChunk(
   conn: InterviewConnection,
   msg: Record<string, unknown>,
@@ -17,11 +51,17 @@ export async function handleAudioChunk(
     });
     return;
   }
+  const normalized = normalizePcmBase64(msg.data);
+  if (!normalized) {
+    console.warn("[audio] dropping invalid PCM chunk");
+    return;
+  }
+
   conn.lastAudioTime = Date.now();
   conn.audioChunksSinceLastTurn++;
   if (conn.audioChunksSinceLastTurn === 1) {
     console.log(
-      `[audio] forwarding first audio chunk to Gemini (waitingForAiResponse=${conn.waitingForAiResponse})`,
+      `[audio] forwarding first audio chunk to Gemini (waitingForAiResponse=${conn.waitingForAiResponse}, bytes=${normalized.byteLength}, rms=${normalized.rms.toFixed(5)}, mime=${PCM_MIME_TYPE})`,
     );
   }
   if (conn.canvasInactivityTimer) {
@@ -34,8 +74,8 @@ export async function handleAudioChunk(
         realtimeInput: {
           mediaChunks: [
             {
-              mimeType: "audio/pcm;rate=16000",
-              data: msg.data as string,
+              mimeType: PCM_MIME_TYPE,
+              data: normalized.data,
             },
           ],
         },
@@ -121,31 +161,23 @@ export async function handleAudioStreamEnd(
   conn.waitingForAiResponse = true;
   conn.dsaTransitioned = false;
 
-  const signalTurnEnd = () => {
-    if (!conn.gemini) return;
-    try {
-      conn.gemini.send(
-        JSON.stringify({ realtimeInput: { audioStreamEnd: true } }),
-      );
-    } catch {
-      // Non-critical
-    }
-    try {
-      conn.gemini.send(
-        JSON.stringify({
-          clientContent: { turns: [], turnComplete: true },
-        }),
-      );
-    } catch {
-      // Non-critical
-    }
-  };
-
-  // Silent Observation Mode: delay the AI's response by 3-5 seconds
-  if (conn.runtime.silenceMode === "extended") {
-    const delay = 3000 + Math.floor(Math.random() * 2000);
-    setTimeout(() => signalTurnEnd(), delay);
-  } else {
-    signalTurnEnd();
+  // Signal turn completion to Gemini so it responds immediately.
+  // Built-in AAD serves as a safety net for edge cases.
+  try {
+    conn.gemini.send(
+      JSON.stringify({
+        realtimeInput: { audioStreamEnd: true },
+      }),
+    );
+    conn.gemini.send(
+      JSON.stringify({
+        clientContent: {
+          turns: [],
+          turnComplete: true,
+        },
+      }),
+    );
+  } catch {
+    // Non-critical — AAD will catch it
   }
 }

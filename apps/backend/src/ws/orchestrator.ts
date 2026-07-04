@@ -13,7 +13,7 @@ import {
   initiateClosing,
   handleTurnCompleteDuringClosing,
 } from "./helpers/cleanup";
-import { startSilenceTimer, resetSilenceState } from "./helpers/silence";
+import { resetSilenceState, startSilenceTimer } from "./helpers/silence";
 import type { InterviewConnection } from "./session";
 import { functionHandlers, safeIndex } from "./tools";
 const SECRET = Bun.env.JWT_SECRET;
@@ -35,16 +35,48 @@ export async function verifyWsToken(
   }
 }
 
-function sendFunctionResponse(
-  conn: InterviewConnection,
-  callId: string | undefined,
-  fnName: string,
-  result: Record<string, unknown>,
-) {
-  if (!callId || !conn.gemini) return;
-  conn.gemini.sendToolResponse([
-    { name: fnName, id: callId, response: result },
-  ]);
+const UNIVERSAL_TOOLS = [
+  "assessTurn",
+  "showReaction",
+  "takeNote",
+  "markForFollowUp",
+  "updateInterviewPace",
+  "allDone",
+];
+
+const MODE_TOOLS: Record<string, string[]> = {
+  DSA: [
+    ...UNIVERSAL_TOOLS,
+    "updateCandidateCode",
+    "advanceToNextQuestion",
+    "simplifyQuestion",
+    "scoreTurn",
+  ],
+  SYSTEM_DESIGN: [
+    ...UNIVERSAL_TOOLS,
+    "canvasDiff",
+    "canvasExample",
+    "advanceStage",
+    "advanceCanvasQuestion",
+    "requestCanvasFocus",
+    "changeConstraint",
+    "challengeCandidate",
+    "simplifyQuestion",
+    "scoreTurn",
+  ],
+  DISCUSSION: [
+    ...UNIVERSAL_TOOLS,
+    "challengeCandidate",
+    "simplifyQuestion",
+    "scoreTurn",
+  ],
+};
+
+function enabledToolNamesForConnection(conn: InterviewConnection) {
+  if (conn.isDsaMode) return MODE_TOOLS.DSA;
+  if (conn.isSystemDesign) return MODE_TOOLS.SYSTEM_DESIGN;
+  if (conn.isDiscussionMode) return MODE_TOOLS.DISCUSSION;
+  return UNIVERSAL_TOOLS;
 }
 
 // ── Orchestrator ──
@@ -73,7 +105,12 @@ export async function startInterview(
   });
 
   try {
-    conn.gemini = await createGeminiSession(systemPrompt);
+    const enabledToolNames = enabledToolNamesForConnection(conn);
+    console.log(
+      "[gemini] enabled tools:",
+      enabledToolNames === undefined ? "all" : enabledToolNames.length,
+    );
+    conn.gemini = await createGeminiSession(systemPrompt, enabledToolNames);
     if (conn.isSystemDesign) {
       console.log("[orchestrator] resetting SD counters");
       resetSdCounters(conn);
@@ -252,6 +289,17 @@ export async function startInterview(
           fnCalls.push({ functionCall: call });
         }
 
+        // ── Tool call cancellation ──
+        if (parsed.toolCallCancellation?.ids?.length > 0) {
+          for (const id of parsed.toolCallCancellation.ids) {
+            if (typeof id === "string") conn.canceledToolCallIds.add(id);
+          }
+          console.log(
+            "[fn] tool call cancelled:",
+            parsed.toolCallCancellation.ids,
+          );
+        }
+
         for (const part of fnCalls) {
           const fnCall = part.functionCall as {
             name?: string;
@@ -260,6 +308,10 @@ export async function startInterview(
           };
           const { name, args, id: callId } = fnCall;
           if (!name) continue;
+          if (callId && conn.canceledToolCallIds.has(callId)) {
+            console.log(`[fn] skipping cancelled call: ${name}`);
+            continue;
+          }
 
           // Dedup: skip if same function + args already processed
           const hash = `${name}:${JSON.stringify(args ?? {})}`;
@@ -272,12 +324,6 @@ export async function startInterview(
           const handler = functionHandlers[name];
           if (!handler) {
             console.error(`[fn] unknown function: ${name}`);
-            sendFunctionResponse(conn, callId, name, {
-              success: false,
-              error: `Unknown function: ${name}`,
-              requestId: callId ?? null,
-              timestamp: Date.now(),
-            });
             continue;
           }
 
@@ -285,34 +331,14 @@ export async function startInterview(
           const parsed = handler.schema.safeParse(args);
           if (!parsed.success) {
             console.error(`[fn] invalid args for ${name}:`, parsed.error);
-            sendFunctionResponse(conn, callId, name, {
-              success: false,
-              error: `Invalid arguments: ${parsed.error.message}`,
-              requestId: callId ?? null,
-              timestamp: Date.now(),
-            });
             continue;
           }
 
           // Execute and await completion
           console.log(`[fn] executing: ${name}`);
           const result = await handler.handler(conn, parsed.data);
-
-          // Send response only after execution completed
-          sendFunctionResponse(conn, callId, name, {
-            ...result,
-            requestId: callId ?? null,
-            timestamp: Date.now(),
-          });
+          // Fire-and-forget: tool executed, result stored locally, no toolResponse sent
           console.log(`[fn] completed: ${name}`, result);
-        }
-
-        // ── Tool call cancellation ──
-        if (parsed.toolCallCancellation?.ids?.length > 0) {
-          console.log(
-            "[fn] tool call cancelled:",
-            parsed.toolCallCancellation.ids,
-          );
         }
 
         // ── Fallback: text marker detection (preferred over function calls) ──
@@ -391,18 +417,22 @@ export async function startInterview(
     const code = args[0] as number | undefined;
     const reason = args[1] as string | undefined;
     if (!conn.finalized) {
-      if (code === 1011 && !conn.closingMode) {
+      const retryableProviderClose =
+        !conn.closingMode && (code === 1006 || code === 1007 || code === 1011);
+      if (retryableProviderClose) {
         conn.safeSend({
           type: "error",
-          code: "gemini_timeout",
-          message: "AI session expired - please try again.",
+          code: "gemini_live_failed",
+          message: "AI live session failed - please try again.",
         });
       }
       console.log(
         `[gemini] connection closed code=${code} reason="${reason}" - triggering cleanup`,
       );
       try {
-        await conn.cleanup("gemini_close");
+        await conn.cleanup(
+          retryableProviderClose ? "gemini_close_retryable" : "gemini_close",
+        );
       } catch (cleanupErr) {
         console.error("[gemini] cleanup after close failed:", cleanupErr);
       }

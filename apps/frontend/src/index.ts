@@ -11,6 +11,14 @@ serve({
       return fetch(`${BACKEND_URL}${url.pathname}${url.search}`, req);
     },
     "/excalidraw.css": () => new Response(Bun.file("public/excalidraw.css")),
+    "/audio-processors/capture.worklet.js": () =>
+      new Response(Bun.file("public/audio-processors/capture.worklet.js"), {
+        headers: { "Content-Type": "application/javascript" },
+      }),
+    "/audio-processors/playback.worklet.js": () =>
+      new Response(Bun.file("public/audio-processors/playback.worklet.js"), {
+        headers: { "Content-Type": "application/javascript" },
+      }),
     "/*": index,
   },
 

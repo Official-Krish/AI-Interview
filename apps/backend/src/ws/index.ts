@@ -29,6 +29,7 @@ export function startWsServer() {
   });
   const wsMap = new Map<string, WsWebSocket>();
   const startCallbacks = new Map<string, () => Promise<void>>();
+  const cleaningSet = new Set<string>();
 
   async function notifyPositionUpdates() {
     const entries = await redisSubscriber.zRange("queue:waiting", 0, -1);
@@ -69,6 +70,7 @@ export function startWsServer() {
       client,
       wsMap,
       startCallbacks,
+      cleaningSet,
       dequeueNextAndNotify,
       notifyPositionUpdates,
     );
