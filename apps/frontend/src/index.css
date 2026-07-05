@@ -4145,8 +4145,17 @@ a.dash-row:hover {
 }
 
 @keyframes db-dot-pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.5; transform: scale(0.85); }
+
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.5;
+    transform: scale(0.85);
+  }
 }
 
 .db-sidebar-divider {
@@ -5743,6 +5752,7 @@ a.dash-row:hover {
   text-decoration: none;
   cursor: pointer;
   overflow: hidden;
+  outline: none;
   transition:
     transform 0.35s cubic-bezier(0.22, 1, 0.36, 1),
     box-shadow 0.35s cubic-bezier(0.22, 1, 0.36, 1);
@@ -5756,6 +5766,18 @@ a.dash-row:hover {
   box-shadow:
     0 1px 0 color-mix(in oklab, var(--landing-fg) 12%, transparent) inset,
     0 16px 40px -8px color-mix(in oklab, var(--landing-accent) 30%, transparent);
+}
+
+.opening-cta:focus-visible {
+  outline: 2px solid var(--landing-accent);
+  outline-offset: 4px;
+}
+
+.opening-cta:active {
+  transform: translateY(1px);
+  box-shadow:
+    0 1px 0 color-mix(in oklab, var(--landing-fg) 8%, transparent) inset,
+    0 4px 12px -4px color-mix(in oklab, #000 30%, transparent);
 }
 
 .opening-cta-label {
@@ -5811,27 +5833,42 @@ a.dash-row:hover {
   display: flex;
   align-items: flex-start;
   gap: 0.75rem;
-  padding: 1rem 1.25rem;
+  padding: 1.25rem;
   border-left: 1px solid var(--landing-line);
-  transition: background 0.4s ease;
+  outline: none;
+  cursor: default;
+  transition:
+    background 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.4s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .opening-metric:first-child {
   border-left: none;
 }
 
-.opening-metric:hover {
+.opening-metric:hover,
+.opening-metric:focus-visible {
   background: color-mix(in oklab, var(--landing-accent) 4%, transparent);
+  transform: translateY(-2px);
 }
 
-.opening-metric-num {
-  font-family: var(--font-sans);
-  font-size: 0.5625rem;
-  font-weight: 500;
-  letter-spacing: 0.14em;
+.opening-metric:focus-visible {
+  box-shadow: 0 0 0 2px var(--landing-accent);
+}
+
+.opening-metric-icon {
+  width: 1.15rem;
+  height: 1.15rem;
+  flex-shrink: 0;
   color: var(--landing-fg-faint);
-  font-variant-numeric: tabular-nums;
   padding-top: 0.15rem;
+  transition: color 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.opening-metric:hover .opening-metric-icon,
+.opening-metric:focus-visible .opening-metric-icon {
+  color: var(--landing-accent);
 }
 
 .opening-metric-body {
@@ -5855,6 +5892,29 @@ a.dash-row:hover {
   font-weight: 400;
   color: var(--landing-fg-muted);
   line-height: 1.45;
+}
+
+/* ── Motion & Animation Preference ─────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .opening-badge-dot {
+    animation: none !important;
+  }
+
+  .opening-atmosphere {
+    animation: none !important;
+  }
+
+  .opening-cta,
+  .opening-cta-arrow,
+  .opening-metric,
+  .opening-metric-icon {
+    transition: none !important;
+    transform: none !important;
+  }
+
+  .opening-cta:hover .opening-cta-arrow {
+    transform: none !important;
+  }
 }
 
 /* ── Responsive ────────────────────────────────────────────── */
@@ -6072,9 +6132,11 @@ a.dash-row:hover {
   .custom-card {
     text-align: center;
   }
+
   .custom-card .custom-status {
     align-self: center;
   }
+
   .custom-card .max-w-sm {
     max-width: 100%;
   }
@@ -6204,9 +6266,12 @@ a.dash-row:hover {
 }
 
 @keyframes wave-pulse {
-  0%, 100% {
+
+  0%,
+  100% {
     transform: scaleY(0.3);
   }
+
   50% {
     transform: scaleY(1);
   }
@@ -6358,30 +6423,39 @@ a.dash-row:hover {
 [data-theme="light"] .custom-discussion-block {
   background: rgba(0, 0, 0, 0.03);
 }
+
 [data-theme="light"] .custom-chat-msg.interviewer .custom-chat-bubble {
   background: rgba(0, 0, 0, 0.05);
 }
+
 [data-theme="light"] .custom-chat-msg.candidate .custom-chat-bubble {
   background: color-mix(in oklab, var(--landing-accent) 8%, transparent);
 }
+
 [data-theme="light"] .custom-coach-card {
   background: rgba(255, 255, 255, 0.6);
 }
+
 [data-theme="light"] .custom-domain-block {
   background: rgba(0, 0, 0, 0.03);
 }
+
 [data-theme="light"] .custom-domain-tabs {
   background: rgba(0, 0, 0, 0.04);
 }
+
 [data-theme="light"] .domain-tab-btn:hover {
   background: rgba(0, 0, 0, 0.02);
 }
+
 [data-theme="light"] .domain-tab-btn.active {
   background: rgba(255, 255, 255, 0.9);
 }
+
 [data-theme="light"] .domain-metrics-row {
   background: rgba(0, 0, 0, 0.03);
 }
+
 [data-theme="light"] .funnel-bar-wrapper {
   background: rgba(0, 0, 0, 0.05);
 }
