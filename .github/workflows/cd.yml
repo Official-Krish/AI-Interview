@@ -12,7 +12,6 @@ permissions:
 jobs:
   update-manifests:
     name: Update Kubernetes Manifests
-
     runs-on: ubuntu-latest
 
     if: |
@@ -24,6 +23,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: main
+          fetch-depth: 0
+          persist-credentials: true
+          token: ${{ secrets.ADMIN_PAT }}
 
       - name: Download Changed Services
         uses: dawidd6/action-download-artifact@v6
@@ -51,8 +53,8 @@ jobs:
       - name: Configure Git
         if: steps.changed.outputs.deploy == 'true'
         run: |
-          git config user.name github-actions
-          git config user.email github-actions@github.com
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Update Image Tags
         id: update_tags
@@ -65,6 +67,7 @@ jobs:
           MINOR=$(( OFFSET / 10 + BASE_MINOR ))
           PATCH=$(( OFFSET % 10 ))
           VERSION="v1.${MINOR}.${PATCH}"
+
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
           if [ "$(cat changed/backend)" = "true" ]; then
@@ -76,14 +79,14 @@ jobs:
           fi
 
       - name: Check For Manifest Changes
-        if: steps.changed.outputs.deploy == 'true'
         id: gitcheck
+        if: steps.changed.outputs.deploy == 'true'
         shell: bash
         run: |
           if git diff --quiet ops/deployment.yml; then
-            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "changed=false" >> "$GITHUB_OUTPUT"
           else
-            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Commit Changes
@@ -95,10 +98,8 @@ jobs:
           git commit -m "chore: update image tags to ${{ steps.update_tags.outputs.version }}"
 
       - name: Push Changes
-        env:
-          ADMIN_PAT: ${{ secrets.ADMIN_PAT }}
         if: |
           steps.changed.outputs.deploy == 'true' &&
           steps.gitcheck.outputs.changed == 'true'
         run: |
-          git push https://x-access-token:${ADMIN_PAT}@github.com/${{ github.repository }}.git HEAD:main
+          git push origin HEAD:main
