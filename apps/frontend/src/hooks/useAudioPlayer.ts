@@ -1,128 +1,152 @@
 import { useRef, useState, useCallback } from "react";
 
-function base64ToFloat32(base64: string): Float32Array {
+function base64ToInt16(base64: string): Int16Array {
   const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
+  const len = binary.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
     bytes[i] = binary.charCodeAt(i);
   }
-  const int16 = new Int16Array(bytes.buffer);
-  const len = int16.length;
-  const float32 = new Float32Array(len);
-  for (let i = 0; i < len; i++) {
-    float32[i] = int16[i]! / 32768;
-  }
-  return float32;
+  return new Int16Array(bytes.buffer);
 }
 
 export function useAudioPlayer() {
   const audioContextRef = useRef<AudioContext | null>(null);
-  const workletRef = useRef<AudioWorkletNode | null>(null);
   const gainRef = useRef<GainNode | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const nextPlayTimeRef = useRef(0);
+  const activeSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
   const isPlayingRef = useRef(false);
   const stoppedRef = useRef(false);
-  const queueSizeRef = useRef(0);
 
   const updateIsPlaying = useCallback(() => {
-    const stillPlaying = queueSizeRef.current > 0;
+    const stillPlaying = activeSourcesRef.current.size > 0;
     if (stillPlaying !== isPlayingRef.current) {
       isPlayingRef.current = stillPlaying;
       setIsPlaying(stillPlaying);
     }
   }, []);
 
-  const ensureContext = useCallback(async () => {
+  const ensureContext = useCallback(() => {
     if (stoppedRef.current) return null;
     if (!audioContextRef.current) {
-      const ctx = new AudioContext({ sampleRate: 24000 });
-      try {
-        await ctx.audioWorklet.addModule(
-          "/audio-processors/playback.worklet.js",
-        );
-      } catch (e) {
-        console.error("[audio] worklet load failed:", e);
-        return null;
-      }
-      audioContextRef.current = ctx;
-
-      analyserRef.current = ctx.createAnalyser();
+      audioContextRef.current = new AudioContext();
+      analyserRef.current = audioContextRef.current.createAnalyser();
       analyserRef.current.fftSize = 128;
       analyserRef.current.smoothingTimeConstant = 0.8;
-
-      gainRef.current = ctx.createGain();
+      gainRef.current = audioContextRef.current.createGain();
       gainRef.current.gain.value = 1.0;
-
-      const worklet = new AudioWorkletNode(ctx, "pcm-processor");
-      workletRef.current = worklet;
-
-      worklet.connect(analyserRef.current!);
-      analyserRef.current!.connect(gainRef.current!);
-      gainRef.current!.connect(ctx.destination);
-
-      queueSizeRef.current = 0;
+      analyserRef.current.connect(gainRef.current);
+      gainRef.current.connect(audioContextRef.current.destination);
+      nextPlayTimeRef.current = 0;
     }
     if (audioContextRef.current.state === "suspended") {
-      await audioContextRef.current.resume();
+      audioContextRef.current.resume();
     }
     return audioContextRef.current;
   }, []);
 
   const playPcm = useCallback(
-    async (base64Pcm: string) => {
+    (base64Pcm: string) => {
       if (stoppedRef.current) return;
-      const ctx = await ensureContext();
+      const ctx = ensureContext();
       if (!ctx) return;
 
-      const float32 = base64ToFloat32(base64Pcm);
-      workletRef.current?.port.postMessage(float32);
+      const int16 = base64ToInt16(base64Pcm);
+      const len = int16.length;
+      const float32 = new Float32Array(len);
+      for (let i = 0; i < len; i++) {
+        const s = int16[i]!;
+        float32[i] = s / (s < 0 ? 0x8000 : 0x7fff);
+      }
 
-      queueSizeRef.current++;
+      const buffer = ctx.createBuffer(1, float32.length, 24000);
+      buffer.copyToChannel(float32, 0);
+
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      if (analyserRef.current) {
+        source.connect(analyserRef.current);
+      } else {
+        source.connect(ctx.destination);
+      }
+
+      const now = ctx.currentTime;
+      const startTime = Math.max(now, nextPlayTimeRef.current);
+      source.start(startTime);
+      nextPlayTimeRef.current = startTime + buffer.duration;
+
+      activeSourcesRef.current.add(source);
       isPlayingRef.current = true;
       setIsPlaying(true);
 
-      // Estimate when playback finishes to update isPlaying
-      const durationMs = (float32.length / 24000) * 1000 + 50;
-      setTimeout(() => {
-        queueSizeRef.current = Math.max(0, queueSizeRef.current - 1);
+      source.onended = () => {
+        activeSourcesRef.current.delete(source);
         updateIsPlaying();
-      }, durationMs);
+      };
     },
     [ensureContext, updateIsPlaying],
   );
 
-  const stop = useCallback(() => {
-    stoppedRef.current = true;
-    workletRef.current?.port.postMessage("interrupt");
-    workletRef.current?.disconnect();
-    gainRef.current?.disconnect();
-    analyserRef.current?.disconnect();
-    audioContextRef.current?.close();
-    audioContextRef.current = null;
-    workletRef.current = null;
-    gainRef.current = null;
-    analyserRef.current = null;
-    queueSizeRef.current = 0;
-    isPlayingRef.current = false;
-    setIsPlaying(false);
-  }, []);
-
   const interrupt = useCallback(() => {
-    // Interrupt current playback without destroying the audio pipeline.
-    // Unlike stop(), this allows future audio to play again.
-    workletRef.current?.port.postMessage("interrupt");
-    queueSizeRef.current = 0;
+    for (const source of activeSourcesRef.current) {
+      try {
+        source.stop(0);
+        source.disconnect();
+      } catch {
+        // already stopped
+      }
+    }
+    activeSourcesRef.current.clear();
+    nextPlayTimeRef.current = 0;
     isPlayingRef.current = false;
     setIsPlaying(false);
-    // Ensure the context is resumed so subsequent playPcm calls work
     if (audioContextRef.current?.state === "suspended") {
       audioContextRef.current.resume();
     }
   }, []);
 
-  const prewarm = useCallback(async () => {
-    await ensureContext();
+  const stop = useCallback(() => {
+    stoppedRef.current = true;
+
+    const ctx = audioContextRef.current;
+    if (gainRef.current && ctx) {
+      try {
+        gainRef.current.gain.setValueAtTime(0, ctx.currentTime);
+      } catch {
+        // context may be closing
+      }
+    }
+
+    for (const source of activeSourcesRef.current) {
+      try {
+        source.stop(0);
+        source.disconnect();
+      } catch {
+        // already stopped
+      }
+    }
+    activeSourcesRef.current.clear();
+    nextPlayTimeRef.current = 0;
+
+    try {
+      analyserRef.current?.disconnect();
+      gainRef.current?.disconnect();
+      void ctx?.close();
+    } catch {
+      // ignore close errors
+    }
+
+    audioContextRef.current = null;
+    analyserRef.current = null;
+    gainRef.current = null;
+    isPlayingRef.current = false;
+    setIsPlaying(false);
+  }, []);
+
+  const prewarm = useCallback(() => {
+    return ensureContext();
   }, [ensureContext]);
 
   return { playPcm, stop, interrupt, prewarm, isPlaying, analyserRef };

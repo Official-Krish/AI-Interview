@@ -57,8 +57,6 @@ export function InterviewPage() {
   const {
     playPcm,
     stop: stopAudio,
-    interrupt: interruptAudio,
-    prewarm: prewarmAudio,
     isPlaying: aiPlaying,
     analyserRef: aiAnalyserRef,
   } = useAudioPlayer();
@@ -687,13 +685,6 @@ export function InterviewPage() {
         }
       }
 
-      if (sc.interrupted && !endedRef.current) {
-        aiSpeakingRef.current = false;
-        interruptAudio();
-        setAiTurnActive(false);
-        turnCompletedRef.current = false;
-      }
-
       if (turnComplete && outputText) {
         turnCompletedRef.current = true;
         setMessages((prev) => [
@@ -896,31 +887,19 @@ export function InterviewPage() {
   useEffect(() => {
     if (!interviewMeta) return;
     if (isSystemDesign || isDiscussion) return;
-    // Unlock the AudioContext before the socket connects so the browser
-    // autoplay policy doesn't block the AI greeting (which arrives immediately).
-    prewarmAudio().finally(() => {
-      connectSocket().catch((err: Error) => {
-        if (mountedRef.current && !endedRef.current) {
-          setError(err.message);
-          toast.error(err.message);
-        }
-      });
+    connectSocket().catch((err: Error) => {
+      if (mountedRef.current && !endedRef.current) {
+        setError(err.message);
+        toast.error(err.message);
+      }
     });
     return () => {
-      // Only close if connection never succeeded — real unmount is handled
-      // by the mountedRef effect which calls teardown().
       if (!connectedRef.current) {
         socketRef.current?.forceClose();
         socketRef.current = null;
       }
     };
-  }, [
-    connectSocket,
-    prewarmAudio,
-    !!interviewMeta,
-    isSystemDesign,
-    isDiscussion,
-  ]);
+  }, [connectSocket, !!interviewMeta, isSystemDesign, isDiscussion]);
 
   useEffect(() => {
     if (phase === "ended" || phase === "connecting" || phase === "queued")
@@ -976,35 +955,16 @@ export function InterviewPage() {
     }
 
     if (aiPlaying || aiTurnActive) {
-      // AI is speaking — user cannot interrupt
       return;
     }
 
     try {
       isUserSpeakingRef.current = true;
-      const vadTimeoutMs =
-        isDsa || isSystemDesign ? 60000 : isDiscussion ? 30000 : 20000;
-      await startMic(
-        (base64) => {
-          if (!endedRef.current) {
-            socketRef.current?.sendAudio(base64);
-          }
-        },
-        {
-          timeoutMs: vadTimeoutMs,
-          onSilenceEnd: () => {
-            if (
-              endedRef.current ||
-              closingRef.current ||
-              feedbackReadyRef.current
-            )
-              return;
-            isUserSpeakingRef.current = false;
-            stopMic();
-            socketRef.current?.sendAudioStreamEnd();
-          },
-        },
-      );
+      await startMic((base64) => {
+        if (!endedRef.current) {
+          socketRef.current?.sendAudio(base64);
+        }
+      });
     } catch {
       isUserSpeakingRef.current = false;
       toast.error("Microphone access denied");
