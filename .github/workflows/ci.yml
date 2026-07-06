@@ -175,7 +175,17 @@ jobs:
           OFFSET=$(( ${{ github.run_number }} - ${{ env.BASE_RUN }} ))
           MINOR=$(( OFFSET / 10 + ${{ env.BASE_MINOR }} ))
           PATCH=$(( OFFSET % 10 ))
-          echo "tag=v1.${MINOR}.${PATCH}" >> "$GITHUB_OUTPUT"
+          TAG="v1.${MINOR}.${PATCH}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "${TAG}" > /tmp/version.txt
+
+      - name: Upload Version
+        if: matrix.changed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: version
+          path: /tmp/version.txt
+          overwrite: true
 
       - name: Setup Docker Buildx
         if: matrix.changed == 'true'
