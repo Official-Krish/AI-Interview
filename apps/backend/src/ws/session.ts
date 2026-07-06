@@ -214,18 +214,8 @@ export class InterviewConnection {
           : (prevMsg.language ?? "javascript");
         this.gemini.send(
           JSON.stringify({
-            clientContent: {
-              turns: [
-                {
-                  role: "user",
-                  parts: [
-                    {
-                      text: `[Code Preview — Question ${idx}, ${phase} phase, not yet saved]\n\n\`\`\`${effectiveLang}\n${prevMsg.code}\n\`\`\``,
-                    },
-                  ],
-                },
-              ],
-              turnComplete: true,
+            realtimeInput: {
+              text: `[Code Preview — Question ${idx}, ${phase} phase, not yet saved]\n\n\`\`\`${effectiveLang}\n${prevMsg.code}\n\`\`\``,
             },
           }),
         );
@@ -249,18 +239,8 @@ export class InterviewConnection {
         const codeText = `\`\`\`${effectiveLang}\n${codeMsg.code}\n\`\`\``;
         this.gemini.send(
           JSON.stringify({
-            clientContent: {
-              turns: [
-                {
-                  role: "user",
-                  parts: [
-                    {
-                      text: `[Code Snapshot for Question ${idx} during ${phase} phase]\n\n${codeText}`,
-                    },
-                  ],
-                },
-              ],
-              turnComplete: true,
+            realtimeInput: {
+              text: `[Code Snapshot for Question ${idx} during ${phase} phase]\n\n${codeText}`,
             },
           }),
         );
@@ -300,18 +280,8 @@ export class InterviewConnection {
           const idx = safeIndex(phaseMsg.questionIndex);
           this.gemini.send(
             JSON.stringify({
-              clientContent: {
-                turns: [
-                  {
-                    role: "user",
-                    parts: [
-                      {
-                        text: `[Phase Update] Moving to "${safePhase(phaseMsg.phase)}" phase for question ${idx}.`,
-                      },
-                    ],
-                  },
-                ],
-                turnComplete: true,
+              realtimeInput: {
+                text: `[Phase Update] Moving to "${safePhase(phaseMsg.phase)}" phase for question ${idx}.`,
               },
             }),
           );
@@ -325,18 +295,8 @@ export class InterviewConnection {
         const idx = safeIndex(hintMsg.questionIndex);
         this.gemini.send(
           JSON.stringify({
-            clientContent: {
-              turns: [
-                {
-                  role: "user",
-                  parts: [
-                    {
-                      text: `[Hint Request] The candidate is asking for a hint on Question ${idx}. Provide a subtle hint that guides them toward the solution without giving it away. Use a Socratic approach — ask a leading question or point them toward the relevant data structure/algorithm to consider.`,
-                    },
-                  ],
-                },
-              ],
-              turnComplete: true,
+            realtimeInput: {
+              text: `[Hint Request] The candidate is asking for a hint on Question ${idx}. Provide a subtle hint that guides them toward the solution without giving it away. Use a Socratic approach — ask a leading question or point them toward the relevant data structure/algorithm to consider.`,
             },
           }),
         );
@@ -370,18 +330,8 @@ export class InterviewConnection {
 
           this.gemini.send(
             JSON.stringify({
-              clientContent: {
-                turns: [
-                  {
-                    role: "user",
-                    parts: [
-                      {
-                        text: `[Language Change] The candidate has switched to coding in **${newLang}**. Adjust your code review expectations and feedback accordingly. Be aware of ${newLang}-specific idioms, syntax, and conventions.`,
-                      },
-                    ],
-                  },
-                ],
-                turnComplete: true,
+              realtimeInput: {
+                text: `[Language Change] The candidate has switched to coding in **${newLang}**. Adjust your code review expectations and feedback accordingly. Be aware of ${newLang}-specific idioms, syntax, and conventions.`,
               },
             }),
           );
@@ -421,18 +371,8 @@ export class InterviewConnection {
 
         this.gemini.send(
           JSON.stringify({
-            clientContent: {
-              turns: [
-                {
-                  role: "user",
-                  parts: [
-                    {
-                      text: `[Canvas Snapshot]\n\n${JSON.stringify(canvasMsg.state)}`,
-                    },
-                  ],
-                },
-              ],
-              turnComplete: false,
+            realtimeInput: {
+              text: `[Canvas Snapshot]\n\n${JSON.stringify(canvasMsg.state)}`,
             },
           }),
         );
@@ -449,10 +389,7 @@ export class InterviewConnection {
               if (this.gemini && !this.closingMode && !this.finalized) {
                 this.gemini.send(
                   JSON.stringify({
-                    clientContent: {
-                      turns: [],
-                      turnComplete: true,
-                    },
+                    realtimeInput: { completeTurn: true },
                   }),
                 );
                 this.waitingForAiResponse = true;

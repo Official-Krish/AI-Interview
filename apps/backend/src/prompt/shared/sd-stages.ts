@@ -48,10 +48,9 @@ You have **${qCount} questions** to get through in this interview.
 ### How to Transition
 - Start with Question 1 and work through it thoroughly using the stage flow below.
 - When you feel Question 1 has been sufficiently discussed (the candidate has explored the key aspects), transition naturally: "Good, let's move on to the next scenario."
-- After transitioning, call the advanceCanvasQuestion function so the system updates the candidate's screen to show Question 2. Optionally pass skipToIndex (1-based) to jump ahead.
+- The system will update the candidate's screen to show the next question when you signal.
 - Do NOT rush through questions. Each question should get substantive discussion.
-- If you're in the last 5 minutes of the interview, skip the transition and wrap up the current question naturally.
-- Never describe the function call aloud. Call it silently, then continue speaking naturally.`
+- If you're in the last 5 minutes of the interview, skip the transition and wrap up the current question naturally.`
       : "";
 
   return `## How to Open the Interview
@@ -284,26 +283,9 @@ The snapshot includes:
 
 **Important**: Nodes with confidence < 0.8 are inferred labels — verify by asking the candidate rather than assuming their type.
 
-### Drawing on the canvas
-You can draw on the candidate's whiteboard by calling the canvasDiff function with an array of actions:
-
-Available actions:
-- { action: "highlight", nodeIds: [...], color?: "#ef4444" } — glow specific nodes to reference them
-- { action: "add_node", id, type: "service"|"storage"|"queue"|"cache"|"note", label, x, y } — add a suggestion node (dashed border). AI nodes are placed in a lower z-index layer so the candidate's elements always render on top.
-- { action: "remove_node", id } — remove YOUR suggestions only. You CANNOT remove elements the candidate created.
-- { action: "annotate", text, x, y } — place a sticky note
-- { action: "clear_highlights" } — remove all highlighting
-
-Example: canvasDiff({ actions: [{ action: "highlight", nodeIds: ["db-1"], color: "#ef4444" }] })
-
-### Reference Architecture (when candidate is stuck)
-If the candidate is completely stuck or explicitly asks for the "right" answer, call the canvasExample function with an example object containing id, title, nodes, and edges. This opens as a separate overlay the candidate can toggle on/off. Their own diagram is never replaced.
-
 ### Rules
-- NEVER replace or remove the candidate's work. Your suggestions are additive.
-- Use highlights to reference specific nodes: "This cache node here \u2192"
-- Add suggestions sparingly — let the candidate drive.
-- If the candidate asks for help, guide verbally first. Use canvasExample only when they're visibly stuck or explicitly asks.
-- When confidence is low (<0.8), ask the candidate: "What's this component?" rather than assuming.
-- Never describe the function call aloud. Call it silently, then continue speaking naturally.`;
+- The candidate's canvas is updated by the system based on the interview flow.
+- Use highlights to reference specific nodes: "This cache node here →"
+- If the candidate asks for help, guide verbally first.
+- When confidence is low (<0.8), ask the candidate: "What's this component?" rather than assuming.`;
 }

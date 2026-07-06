@@ -43,7 +43,9 @@ const AdvanceQuestionSchema = z.object({
   skipToIndex: z.number().int().optional(),
 });
 
-const AllDoneSchema = z.object({});
+const AllDoneSchema = z.object({
+  reason: z.string().optional(),
+});
 
 const CanvasDiffActionSchema = z.object({
   action: z.enum([
@@ -248,21 +250,11 @@ async function handleAdvanceToNextQuestion(
 
         conn.gemini?.send(
           JSON.stringify({
-            clientContent: {
-              turns: [
-                {
-                  role: "user",
-                  parts: [
-                    {
-                      text:
-                        skipIdx != null
-                          ? `[System] Skip ahead. The candidate is now on Question ${nextIdx + 1}: "${nextProblem.title}" (${nextProblem.difficulty}). Do NOT read it aloud — it's on their screen. Wait for them to indicate they've read it, then start with comprehension checks.`
-                          : `[System] The interview has moved to the next question. The candidate is now on Question ${nextIdx + 1}: "${nextProblem.title}" (${nextProblem.difficulty}). Do NOT read the question aloud — it's displayed on their screen. Wait for the candidate to indicate they've read it before discussing. Start with comprehension checks.`,
-                    },
-                  ],
-                },
-              ],
-              turnComplete: false,
+            realtimeInput: {
+              text:
+                skipIdx != null
+                  ? `[System] Skip ahead. The candidate is now on Question ${nextIdx + 1}: "${nextProblem.title}" (${nextProblem.difficulty}). Do NOT read it aloud — it's on their screen. Wait for them to indicate they've read it, then start with comprehension checks.`
+                  : `[System] The interview has moved to the next question. The candidate is now on Question ${nextIdx + 1}: "${nextProblem.title}" (${nextProblem.difficulty}). Do NOT read the question aloud — it's displayed on their screen. Wait for the candidate to indicate they've read it before discussing. Start with comprehension checks.`,
             },
           }),
         );
@@ -501,18 +493,8 @@ async function handleUpdateInterviewPace(
     try {
       conn.gemini.send(
         JSON.stringify({
-          clientContent: {
-            turns: [
-              {
-                role: "user",
-                parts: [
-                  {
-                    text: `[PACING: ${pace === "fast" ? "Fast mode" : "Normal mode"}]${reason ? ` Reason: ${reason}` : ""}`,
-                  },
-                ],
-              },
-            ],
-            turnComplete: false,
+          realtimeInput: {
+            text: `[PACING: ${pace === "fast" ? "Fast mode" : "Normal mode"}]${reason ? ` Reason: ${reason}` : ""}`,
           },
         }),
       );
@@ -545,18 +527,8 @@ async function handleChangeConstraint(
     try {
       conn.gemini.send(
         JSON.stringify({
-          clientContent: {
-            turns: [
-              {
-                role: "user",
-                parts: [
-                  {
-                    text: `[CONSTRAINT] New constraint: ${constraint}=${value}.${revertAfterMs ? ` This constraint reverts in ${revertAfterMs}ms.` : ""} Acknowledge it and ask the candidate how they would adapt.`,
-                  },
-                ],
-              },
-            ],
-            turnComplete: false,
+          realtimeInput: {
+            text: `[CONSTRAINT] New constraint: ${constraint}=${value}.${revertAfterMs ? ` This constraint reverts in ${revertAfterMs}ms.` : ""} Acknowledge it and ask the candidate how they would adapt.`,
           },
         }),
       );
@@ -575,18 +547,8 @@ async function handleChangeConstraint(
         try {
           conn.gemini.send(
             JSON.stringify({
-              clientContent: {
-                turns: [
-                  {
-                    role: "user",
-                    parts: [
-                      {
-                        text: `[CONSTRAINT REVERTED] The constraint ${constraint}=${value} has been removed. The system is back to normal parameters.`,
-                      },
-                    ],
-                  },
-                ],
-                turnComplete: false,
+              realtimeInput: {
+                text: `[CONSTRAINT REVERTED] The constraint ${constraint}=${value} has been removed. The system is back to normal parameters.`,
               },
             }),
           );
@@ -614,18 +576,9 @@ async function handleChallengeCandidate(
     try {
       conn.gemini.send(
         JSON.stringify({
-          clientContent: {
-            turns: [
-              {
-                role: "user",
-                parts: [
-                  {
-                    text: `[CHALLENGE] Push back on the candidate: ${topic}. Challenge their assumptions and ask them to defend their reasoning. This is a deliberate confidence check — probe for depth behind their assertiveness.`,
-                  },
-                ],
-              },
-            ],
-            turnComplete: true,
+          realtimeInput: {
+            text: `[CHALLENGE] Push back on the candidate: ${topic}. Challenge their assumptions and ask them to defend their reasoning. This is a deliberate confidence check — probe for depth behind their assertiveness.`,
+            completeTurn: true,
           },
         }),
       );
@@ -788,7 +741,13 @@ export const FUNCTION_DECLARATIONS = [
       "Signal that all questions have been completed and the interview should wrap up. Call this when time is nearly up or the candidate clearly cannot continue. This replaces the ALL_DONE signal.",
     parameters: {
       type: "OBJECT",
-      properties: {},
+      properties: {
+        reason: {
+          type: "STRING",
+          description:
+            "Optional reason for ending (e.g., 'time_up', 'all_questions_done', 'candidate_stuck').",
+        },
+      },
     },
   },
   {

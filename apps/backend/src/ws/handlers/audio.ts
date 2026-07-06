@@ -59,11 +59,18 @@ export async function handleAudioChunk(
 
   conn.lastAudioTime = Date.now();
   conn.audioChunksSinceLastTurn++;
-  if (conn.audioChunksSinceLastTurn === 1) {
+
+  // Enhanced logging for audio pipeline debugging
+  if (conn.audioChunksSinceLastTurn <= 3) {
     console.log(
-      `[audio] forwarding first audio chunk to Gemini (waitingForAiResponse=${conn.waitingForAiResponse}, bytes=${normalized.byteLength}, rms=${normalized.rms.toFixed(5)}, mime=${PCM_MIME_TYPE})`,
+      `[audio] chunk #${conn.audioChunksSinceLastTurn} → Gemini (bytes=${normalized.byteLength}, rms=${normalized.rms.toFixed(5)}, waitingForAi=${conn.waitingForAiResponse})`,
+    );
+  } else if (conn.audioChunksSinceLastTurn % 10 === 0) {
+    console.log(
+      `[audio] chunk #${conn.audioChunksSinceLastTurn} (rms=${normalized.rms.toFixed(5)})`,
     );
   }
+
   if (conn.canvasInactivityTimer) {
     clearTimeout(conn.canvasInactivityTimer);
     conn.canvasInactivityTimer = null;
@@ -81,7 +88,11 @@ export async function handleAudioChunk(
         },
       }),
     );
-  } catch {
+  } catch (err) {
+    console.error(
+      `[audio] failed to forward chunk #${conn.audioChunksSinceLastTurn}:`,
+      err,
+    );
     await conn.safeSend({ error: "Failed to send audio" });
   }
 }
@@ -106,21 +117,34 @@ export async function handleAudioStreamEnd(
   const isInterrupted = (msg as { interrupted?: boolean }).interrupted === true;
   if (isInterrupted) {
     conn.interruptionCount++;
+    console.log(
+      `[audio] stream_end: interrupted (#${conn.interruptionCount}), resetting state`,
+    );
+  } else {
+    console.log(
+      `[audio] stream_end: normal (chunks=${conn.audioChunksSinceLastTurn})`,
+    );
   }
+
   const MIN_MEANINGFUL_CHUNKS = 3;
 
-  // Hallucination guardrail: if the user barely spoke, silently keep listening
+  // Hallucination guardrail: if the user barely spoke, still close the activity
+  // (activityStart was sent with the first chunk) but skip DB persistence.
   if (!isInterrupted && conn.audioChunksSinceLastTurn < MIN_MEANINGFUL_CHUNKS) {
+    console.log(
+      `[audio] hallucination guard: only ${conn.audioChunksSinceLastTurn} chunks, skipping DB save`,
+    );
     conn.waitingForAiResponse = false;
     conn.audioChunksSinceLastTurn = 0;
-    conn.gemini.send(
-      JSON.stringify({
-        clientContent: {
-          turns: [],
-          turnComplete: false,
-        },
-      }),
-    );
+    try {
+      conn.gemini.send(
+        JSON.stringify({
+          realtimeInput: { audioStreamEnd: true },
+        }),
+      );
+    } catch {
+      // Non-critical
+    }
     return;
   }
 
@@ -138,6 +162,15 @@ export async function handleAudioStreamEnd(
     conn.cleanQuestionBuf = "";
     conn.waitingForAiResponse = false;
     conn.audioChunksSinceLastTurn = 0;
+    try {
+      conn.gemini.send(
+        JSON.stringify({
+          realtimeInput: { audioStreamEnd: true },
+        }),
+      );
+    } catch {
+      // Non-critical
+    }
     return;
   }
 
@@ -161,23 +194,15 @@ export async function handleAudioStreamEnd(
   conn.waitingForAiResponse = true;
   conn.dsaTransitioned = false;
 
-  // Signal turn completion to Gemini so it responds immediately.
-  // Built-in AAD serves as a safety net for edge cases.
+  // Signal end of user audio turn — adapter translates to activityEnd for
+  // client-side VAD protocol.
   try {
     conn.gemini.send(
       JSON.stringify({
         realtimeInput: { audioStreamEnd: true },
       }),
     );
-    conn.gemini.send(
-      JSON.stringify({
-        clientContent: {
-          turns: [],
-          turnComplete: true,
-        },
-      }),
-    );
   } catch {
-    // Non-critical — AAD will catch it
+    // Non-critical
   }
 }

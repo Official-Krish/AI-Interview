@@ -108,5 +108,22 @@ export function useAudioPlayer() {
     setIsPlaying(false);
   }, []);
 
-  return { playPcm, stop, isPlaying, analyserRef };
+  const interrupt = useCallback(() => {
+    // Interrupt current playback without destroying the audio pipeline.
+    // Unlike stop(), this allows future audio to play again.
+    workletRef.current?.port.postMessage("interrupt");
+    queueSizeRef.current = 0;
+    isPlayingRef.current = false;
+    setIsPlaying(false);
+    // Ensure the context is resumed so subsequent playPcm calls work
+    if (audioContextRef.current?.state === "suspended") {
+      audioContextRef.current.resume();
+    }
+  }, []);
+
+  const prewarm = useCallback(async () => {
+    await ensureContext();
+  }, [ensureContext]);
+
+  return { playPcm, stop, interrupt, prewarm, isPlaying, analyserRef };
 }

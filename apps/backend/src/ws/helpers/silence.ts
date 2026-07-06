@@ -113,9 +113,9 @@ function sendSilencePrompt(
   try {
     conn.gemini.send(
       JSON.stringify({
-        clientContent: {
-          turns: [{ role: "user", parts: [{ text }] }],
-          turnComplete: true,
+        realtimeInput: {
+          text,
+          completeTurn: true,
         },
       }),
     );

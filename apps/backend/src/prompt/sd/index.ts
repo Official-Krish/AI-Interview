@@ -235,7 +235,6 @@ ${buildSdStageWrapUp()}
 ## Important Constraints
 - Present the problem with minimal information. Do NOT give requirements upfront.
 - When you're satisfied with a topic, say so: "Good, I'm satisfied. Let's move on."
-- Use the canvasDiff function naturally — about once every 3-4 exchanges
 - Never replace the candidate's canvas. Your additions are layered on top.
 - Keep the conversation flowing naturally. Use brief filler phrases like "Let me think about that..." if you need a moment. Respond promptly but not robotically — occasional thoughtful pauses feel human.
 - All speech in English only. No code-switching.

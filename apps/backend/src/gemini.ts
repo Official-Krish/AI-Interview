@@ -2,6 +2,18 @@ import { EventEmitter } from "node:events";
 import { GoogleGenAI, Modality, type Session } from "@google/genai";
 import { FUNCTION_DECLARATIONS } from "./ws/tools";
 
+// 100 ms of 16-bit PCM silence at 16 kHz (1600 zero samples = 3200 zero bytes)
+const SILENT_PCM_BASE64 = Buffer.alloc(3200).toString("base64");
+const PCM_MIME = "audio/pcm;rate=16000";
+
+function sendCompleteTurn(session: Session) {
+  // Send a synthetic silent audio frame to trigger model response
+  session.sendRealtimeInput({
+    media: { data: SILENT_PCM_BASE64, mimeType: PCM_MIME },
+  });
+  session.sendRealtimeInput({ audioStreamEnd: true });
+}
+
 export interface GeminiSession {
   on(
     event: "message" | "error" | "close",
@@ -38,6 +50,8 @@ class GeminiSessionAdapter implements GeminiSession {
         };
         realtimeInput?: {
           audioStreamEnd?: boolean;
+          completeTurn?: boolean;
+          text?: string;
           mediaChunks?: Array<{
             mimeType?: string;
             data?: string;
@@ -58,19 +72,35 @@ class GeminiSessionAdapter implements GeminiSession {
         return;
       }
 
+      // audioStreamEnd signals the end of a user's audio turn
       if (message.realtimeInput?.audioStreamEnd) {
         this.session.sendRealtimeInput({ audioStreamEnd: true });
         return;
       }
 
+      // Forward audio chunks
       for (const chunk of message.realtimeInput?.mediaChunks ?? []) {
         if (!chunk.data || !chunk.mimeType) continue;
-        const dataLen = chunk.data.length;
-        if (dataLen > 0) {
-          this.session.sendRealtimeInput({
-            audio: { data: chunk.data, mimeType: chunk.mimeType },
-          });
+        this.session.sendRealtimeInput({
+          media: { data: chunk.data, mimeType: chunk.mimeType },
+        });
+      }
+
+      // Text injection via realtimeInput — sends text without any activity
+      // signal so the model absorbs it silently into context.
+      if (message.realtimeInput?.text !== undefined) {
+        this.session.sendRealtimeInput({ text: message.realtimeInput.text });
+        if (message.realtimeInput.completeTurn) {
+          sendCompleteTurn(this.session);
         }
+        return;
+      }
+
+      // completeTurn without text: synthetic user turn to trigger a model
+      // response (e.g. initial bootstrap, canvas-only turn complete).
+      if (message.realtimeInput?.completeTurn) {
+        sendCompleteTurn(this.session);
+        return;
       }
     } catch (err) {
       console.error("[gemini adapter] send failed:", err);
@@ -106,9 +136,8 @@ export async function createGeminiSession(
     model: "gemini-2.5-flash-native-audio-preview-12-2025",
     config: {
       responseModalities: [Modality.AUDIO],
-      outputAudioTranscription: {},
       systemInstruction: systemPrompt,
-      tools: [{ functionDeclarations: filteredDeclarations }],
+      // tools: [{ functionDeclarations: filteredDeclarations }],
     },
     callbacks: {
       onmessage: (message) => {

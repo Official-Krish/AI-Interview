@@ -108,18 +108,9 @@ export async function initiateClosing(conn: InterviewConnection) {
   try {
     conn.gemini?.send(
       JSON.stringify({
-        clientContent: {
-          turns: [
-            {
-              role: "user",
-              parts: [
-                {
-                  text: "The interview is now complete. Give a brief closing summary highlighting one key strength and one area for improvement. Thank the candidate for interviewing with Evalio, and mention that this was an Evalio AI-powered practice interview. Invite them to share feedback about their experience. Then say goodbye.",
-                },
-              ],
-            },
-          ],
-          turnComplete: true,
+        realtimeInput: {
+          text: "The interview is now complete. Give a brief closing summary highlighting one key strength and one area for improvement. Thank the candidate for interviewing with Evalio, and mention that this was an Evalio AI-powered practice interview. Invite them to share feedback about their experience. Then say goodbye.",
+          completeTurn: true,
         },
       }),
     );

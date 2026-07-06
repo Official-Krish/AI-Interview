@@ -57,6 +57,8 @@ export function InterviewPage() {
   const {
     playPcm,
     stop: stopAudio,
+    interrupt: interruptAudio,
+    prewarm: prewarmAudio,
     isPlaying: aiPlaying,
     analyserRef: aiAnalyserRef,
   } = useAudioPlayer();
@@ -685,11 +687,9 @@ export function InterviewPage() {
         }
       }
 
-      // Gemini signals the current AI response was interrupted
-      // (user started speaking). Stop playback and reset state.
       if (sc.interrupted && !endedRef.current) {
         aiSpeakingRef.current = false;
-        stopAudio();
+        interruptAudio();
         setAiTurnActive(false);
         turnCompletedRef.current = false;
       }
@@ -896,11 +896,15 @@ export function InterviewPage() {
   useEffect(() => {
     if (!interviewMeta) return;
     if (isSystemDesign || isDiscussion) return;
-    connectSocket().catch((err: Error) => {
-      if (mountedRef.current && !endedRef.current) {
-        setError(err.message);
-        toast.error(err.message);
-      }
+    // Unlock the AudioContext before the socket connects so the browser
+    // autoplay policy doesn't block the AI greeting (which arrives immediately).
+    prewarmAudio().finally(() => {
+      connectSocket().catch((err: Error) => {
+        if (mountedRef.current && !endedRef.current) {
+          setError(err.message);
+          toast.error(err.message);
+        }
+      });
     });
     return () => {
       // Only close if connection never succeeded — real unmount is handled
@@ -910,7 +914,13 @@ export function InterviewPage() {
         socketRef.current = null;
       }
     };
-  }, [connectSocket, !!interviewMeta, isSystemDesign, isDiscussion]);
+  }, [
+    connectSocket,
+    prewarmAudio,
+    !!interviewMeta,
+    isSystemDesign,
+    isDiscussion,
+  ]);
 
   useEffect(() => {
     if (phase === "ended" || phase === "connecting" || phase === "queued")

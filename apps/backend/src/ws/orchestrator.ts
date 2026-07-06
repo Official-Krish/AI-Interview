@@ -104,6 +104,20 @@ export async function startInterview(
     data: { status: "ACTIVE", startedAt: new Date() },
   });
 
+  // Build greeting instruction — sent as a clientContent turn to trigger
+  // the model's first response. This is the approach used in production.
+  let greeting: string;
+  if (conn.isDsaMode) {
+    greeting =
+      "Start the DSA coding interview. Say you're their interviewer for the day. Mention the role and company they're interviewing for. Tell the candidate their first coding problem is displayed on the right side of their screen. Ask them to take a moment to read it and let you know when they're ready. Then STOP — wait for their response. Do NOT discuss the problem or ask any technical questions until they confirm they're ready. Do not use a name or introduce yourself personally — just say you're their interviewer.";
+  } else if (conn.isDiscussionMode) {
+    greeting =
+      "Start the case study discussion. Greet the candidate naturally. Say you are their interviewer for the day and mention the role and company. No name. Tell them the case study is displayed on the right side of their screen. Ask them to read it and let you know when they are ready. Then STOP and wait. Do NOT discuss the case until they confirm they are ready.";
+  } else {
+    greeting =
+      "Start the interview. Greet the candidate naturally. Say you are their interviewer for the day and mention the role and company they are interviewing for. No name. Then ask your first question.";
+  }
+
   try {
     const enabledToolNames = enabledToolNamesForConnection(conn);
     console.log(
@@ -123,44 +137,25 @@ export async function startInterview(
     return;
   }
 
-  console.log("[ws] sending initial clientContent to start interview...");
-
-  let greetings: string[];
-  if (conn.isDsaMode) {
-    greetings = [
-      "Start the DSA coding interview. Say you're their interviewer for the day. Mention the role and company they're interviewing for. Tell the candidate their first coding problem is displayed on the right side of their screen. Ask them to take a moment to read it and let you know when they're ready. Then STOP — wait for their response. Do NOT discuss the problem or ask any technical questions until they confirm they're ready. Do not use a name or introduce yourself personally — just say you're their interviewer.",
-      "Begin the DSA coding interview. Briefly mention the role they're interviewing for and the company. Do not say your name or introduce yourself personally — just say you're their interviewer. Point out that the first question is visible on their screen. Ask if they can see it and if they have any immediate questions. Then wait for their reply before proceeding.",
-    ];
-  } else if (conn.isDiscussionMode) {
-    greetings = [
-      "Start the case study discussion. Greet the candidate naturally. Say you are their interviewer for the day and mention the role and company. No name. Tell them the case study is displayed on the right side of their screen. Ask them to read it and let you know when they are ready. Then STOP and wait. Do NOT discuss the case until they confirm they are ready.",
-      "Begin the case study discussion. Briefly mention the role and company. No name. Point out the case study is visible on their screen. Ask if they can see it and if they have any questions. Then wait for their reply before proceeding.",
-      "Start the session. Greet the candidate conversationally — say you are their interviewer for the day and state the role and company. No name. Tell them the case is on their right screen. Ask them to read it and let you know when they are ready. Then wait.",
-    ];
-  } else {
-    greetings = [
-      "Start the interview. Greet the candidate naturally. Say you are their interviewer for the day and mention the role and company they are interviewing for. No name. Then ask your first question.",
-      "Begin the interview. Welcome the candidate — just say you are their interviewer, mention what they are here for (role at company), and keep it brief. No name. Then move to questions.",
-      "Start the session. Greet the candidate conversationally — say you are their interviewer for the day and state the role and company. No name. Then lead into the first question.",
-    ];
+  // Send greeting as clientContent turn to trigger model's first response
+  console.log("[ws] sending initial clientContent greeting...");
+  try {
+    conn.gemini.send(
+      JSON.stringify({
+        clientContent: {
+          turns: [
+            {
+              role: "user",
+              parts: [{ text: greeting }],
+            },
+          ],
+          turnComplete: true,
+        },
+      }),
+    );
+  } catch (err) {
+    console.error("[ws] greeting send failed:", err);
   }
-  conn.gemini.send(
-    JSON.stringify({
-      clientContent: {
-        turns: [
-          {
-            role: "user",
-            parts: [
-              {
-                text: greetings[0],
-              },
-            ],
-          },
-        ],
-        turnComplete: true,
-      },
-    }),
-  );
 
   conn.gemini.on("message", async (event) => {
     try {
@@ -200,6 +195,8 @@ export async function startInterview(
               `[gemini] → ${label}${hasAudio ? " (with audio)" : ""} turnComplete=${tc}`,
             );
           }
+
+          // Relay serverContent to client (but not setupComplete)
         } else if (!parsed.setupComplete) {
           const sanitized = { ...parsed };
           if (
@@ -459,15 +456,7 @@ export async function startInterview(
         try {
           conn.gemini.send(
             JSON.stringify({
-              clientContent: {
-                turns: [
-                  {
-                    role: "user",
-                    parts: [{ text: pacingMsg }],
-                  },
-                ],
-                turnComplete: false,
-              },
+              realtimeInput: { text: pacingMsg },
             }),
           );
         } catch {
@@ -490,18 +479,8 @@ export async function startInterview(
         try {
           conn.gemini.send(
             JSON.stringify({
-              clientContent: {
-                turns: [
-                  {
-                    role: "user",
-                    parts: [
-                      {
-                        text: `[SYSTEM: 1 minute remaining. Wrap up current topic and begin closing. Do NOT start new discussions.]`,
-                      },
-                    ],
-                  },
-                ],
-                turnComplete: false,
+              realtimeInput: {
+                text: `[SYSTEM: 1 minute remaining. Wrap up current topic and begin closing. Do NOT start new discussions.]`,
               },
             }),
           );
