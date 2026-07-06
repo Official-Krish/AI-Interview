@@ -48,12 +48,14 @@ export class InterviewSocket {
             "time_warning",
             "time_limit_reached",
             "position_update",
-            "slot_assigned",
             "dsa_ready_next",
             "dsa_all_done",
             "dsa_code_update",
             "canvas_diff",
             "canvas_example",
+            "canvas:next",
+            "interviewer_reaction",
+            "canvas:focus",
           ];
           if (
             typeof data.type === "string" &&
@@ -131,10 +133,6 @@ export class InterviewSocket {
       questionIndex,
       phase,
     });
-  }
-
-  sendPhaseUpdate(phase: string, questionIndex: number) {
-    this.send({ type: "phase_update", phase, questionIndex });
   }
 
   sendRequestHint(questionIndex: number) {

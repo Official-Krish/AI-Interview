@@ -147,6 +147,53 @@ export function TurnRow({
                 </div>
               )}
 
+              {(turn.weight != null || turn.evidence) && (
+                <div
+                  className="flex items-center gap-3 mt-3 mb-1 text-[11px]"
+                  style={{ color: "var(--color-text-muted)" }}
+                >
+                  {turn.weight != null && (
+                    <span className="flex items-center gap-1">
+                      <svg
+                        width="10"
+                        height="10"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="opacity-60"
+                      >
+                        <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                        <path d="M2 17l10 5 10-5" />
+                        <path d="M2 12l10 5 10-5" />
+                      </svg>
+                      Weight: {turn.weight.toFixed(1)}
+                    </span>
+                  )}
+                  {turn.evidence && (
+                    <span className="flex items-center gap-1">
+                      <svg
+                        width="10"
+                        height="10"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="opacity-60"
+                      >
+                        <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+                        <polyline points="14 2 14 8 20 8" />
+                      </svg>
+                      {turn.evidence}
+                    </span>
+                  )}
+                </div>
+              )}
+
               {isLow && (
                 <div className="mt-4">
                   <button

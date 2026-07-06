@@ -22,7 +22,7 @@ const interviews = [
     description:
       "LeetCode-style problems sourced from 1,900+ companies. A 6-phase interview structure that mirrors real on-sites — understand, brute force, optimize, implement, test, review.",
     features: ["Monaco Editor", "Python · C++ · TypeScript", "30 min timer"],
-    status: { label: "Live now", color: "rgba(160,200,160,0.9)" },
+    status: { label: "Live now", color: "var(--landing-accent)" },
   },
   {
     id: "system-design",
@@ -34,6 +34,32 @@ const interviews = [
       "Sketch blocks & arrows",
       "Real-time AI co-pilot",
       "Tradeoff probing",
+    ],
+    status: { label: "Live now", color: "var(--landing-accent)" },
+  },
+  {
+    id: "discussion",
+    title: "Articulate and align.",
+    accent: "Behavioral & Discussion.",
+    description:
+      "Interactive dialogue for behavioral rounds, system critiques, and product deep-dives. Get real-time audio coaching or chat feedback on your articulation and STAR response structure.",
+    features: [
+      "Voice Mode (low-latency)",
+      "System Critiques",
+      "Live Articulation Coach",
+    ],
+    status: { label: "Live now", color: "var(--landing-accent)" },
+  },
+  {
+    id: "domain",
+    title: "Targeted to your",
+    accent: "dream role.",
+    description:
+      "Solve specialized domain problems. Debug low-latency HFT C++ memory pools, query SQL analytical schemas, or analyze product conversion funnels in custom-tailored environments.",
+    features: [
+      "SQL & Analytics",
+      "HFT C++ & Low-Level",
+      "FAANG & Quant tracks",
     ],
     status: { label: "Live now", color: "var(--landing-accent)" },
   },
@@ -386,6 +412,317 @@ function ArchDiagram() {
   );
 }
 
+interface ChatMessage {
+  author: "interviewer" | "candidate";
+  text: string;
+}
+
+const DISCUSSION_MESSAGES: ChatMessage[] = [
+  {
+    author: "interviewer",
+    text: "Can you describe a time you disagreed with a Product Manager on technical scope, and how you resolved it?",
+  },
+  {
+    author: "candidate",
+    text: "We wanted to launch a real-time feed. The PM wanted full database transactions, but I proposed using Redis pub-sub for ephemeral events and only persisted critical milestones to optimize DB load. We resolved it by comparing latency mockups and user impact.",
+  },
+];
+
+interface CoachFeedback {
+  phase: string;
+  feedback: string;
+  action: string;
+}
+
+const COACH_FEEDBACKS: CoachFeedback[] = [
+  {
+    phase: "Structure",
+    feedback:
+      "You clearly outlined the Situation and Task. Good alignment of PM objectives with engineering challenges.",
+    action:
+      "Mention specific latency figures (e.g. 500ms saved) to prove your impact in the Action/Result phase.",
+  },
+  {
+    phase: "Tone",
+    feedback:
+      "Collaboration-focused phrasing. Instead of saying 'PM was wrong', you focused on 'tradeoffs and data-backed options'.",
+    action:
+      "Excellent, this is what elite companies look for in team communication dynamics.",
+  },
+];
+
+function DiscussionMockup() {
+  const [activeFeedbackIdx, setActiveFeedbackIdx] = useState(0);
+
+  return (
+    <div className="custom-discussion-block">
+      {/* Header */}
+      <div className="custom-code-header">
+        <span className="custom-code-dot" style={{ background: "#ff5f56" }} />
+        <span className="custom-code-dot" style={{ background: "#ffbd2e" }} />
+        <span className="custom-code-dot" style={{ background: "#27c93f" }} />
+        <div className="flex items-center gap-1.5 ml-3">
+          <div className="custom-discussion-waveform">
+            {[1.2, 0.8, 1.4, 0.6, 1.1, 1.3, 0.7, 1.0].map((delay, idx) => (
+              <span
+                key={idx}
+                className="waveform-bar"
+                style={{
+                  height: "14px",
+                  animationDelay: `${delay}s`,
+                }}
+              />
+            ))}
+          </div>
+          <span className="text-[10px] font-mono text-[var(--landing-fg-muted)]">
+            Voice Live
+          </span>
+        </div>
+        <span className="custom-code-filename">behavioral_feedback.log</span>
+      </div>
+
+      {/* Transcript Chat */}
+      <div className="custom-discussion-chat">
+        {DISCUSSION_MESSAGES.map((msg, idx) => (
+          <div key={idx} className={`custom-chat-msg ${msg.author}`}>
+            <span className="custom-chat-author">
+              {msg.author === "interviewer"
+                ? "AI Lead Interviewer"
+                : "You (Candidate)"}
+            </span>
+            <div className="custom-chat-bubble">{msg.text}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* AI Coach Overlay */}
+      <div className="custom-coach-card">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-1.5">
+            <IconSparkles
+              size={13}
+              className="text-[var(--landing-accent)] animate-pulse"
+            />
+            <span className="text-[10px] font-mono uppercase tracking-wider">
+              AI Coach Feedback
+            </span>
+          </div>
+          <div className="flex gap-1">
+            {COACH_FEEDBACKS.map((fb, idx) => (
+              <button
+                key={fb.phase}
+                onClick={() => setActiveFeedbackIdx(idx)}
+                className={`text-[9px] font-mono px-1.5 py-0.5 rounded transition-all cursor-pointer ${
+                  activeFeedbackIdx === idx
+                    ? "bg-[var(--landing-accent)] text-[var(--landing-bg)]"
+                    : "bg-transparent border border-neutral-700"
+                }`}
+              >
+                {fb.phase}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="flex flex-col gap-1 text-[11px] leading-relaxed">
+          <span className="italic">
+            "{COACH_FEEDBACKS[activeFeedbackIdx]?.feedback}"
+          </span>
+          <span className="font-semibold mt-1">
+            💡 Recommendation: {COACH_FEEDBACKS[activeFeedbackIdx]?.action}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DomainMockup() {
+  const [activeTab, setActiveTab] = useState<"hft" | "sql" | "product">("hft");
+
+  return (
+    <div className="custom-domain-block">
+      {/* Tabs */}
+      <div className="custom-domain-tabs">
+        <button
+          onClick={() => setActiveTab("hft")}
+          className={`domain-tab-btn ${activeTab === "hft" ? "active" : ""}`}
+        >
+          HFT (C++)
+        </button>
+        <button
+          onClick={() => setActiveTab("sql")}
+          className={`domain-tab-btn ${activeTab === "sql" ? "active" : ""}`}
+        >
+          SQL & Analytics
+        </button>
+        <button
+          onClick={() => setActiveTab("product")}
+          className={`domain-tab-btn ${activeTab === "product" ? "active" : ""}`}
+        >
+          Product Sense
+        </button>
+      </div>
+
+      <div className="custom-domain-content">
+        <AnimatePresence mode="wait">
+          {activeTab === "hft" && (
+            <motion.div
+              key="hft"
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.15 }}
+              className="flex-1 flex flex-col justify-between"
+            >
+              <pre className="domain-code-pre">
+                <code className="text-blue-400">#include &lt;atomic&gt;</code>
+                {"\n"}
+                <code className="text-purple-400">
+                  template &lt;typename T, size_t Cap&gt;
+                </code>
+                {"\n"}
+                <code className="text-green-400">
+                  class lock_free_queue &#123;
+                </code>
+                {"\n"}
+                <code>
+                  {" "}
+                  alignas(64) std::atomic&lt;size_t&gt; tail_&#123;0&#125;;
+                </code>
+                {"\n"}
+                <code>
+                  {" "}
+                  alignas(64) std::atomic&lt;size_t&gt; head_&#123;0&#125;;
+                </code>
+                {"\n"}
+                <code> T buffer_[Cap];</code>
+                {"\n"}
+                <code className="text-yellow-400">
+                  {" "}
+                  bool enqueue(T item) noexcept &#123;
+                </code>
+                {"\n"}
+                <code>
+                  {" "}
+                  size_t tail = tail_.load(std::memory_order_relaxed);
+                </code>
+                {"\n"}
+                <code> // lock-free pointer validation</code>
+                {"\n"}
+                <code> return tail_.compare_exchange_weak(...);</code>
+                {"\n"}
+                <code> &#125;</code>
+                {"\n"}
+                <code className="text-green-400">&#125;;</code>
+              </pre>
+              <div className="domain-metrics-row">
+                <span className="domain-metric-badge green">latency: 38ns</span>
+                <span className="domain-metric-badge blue">
+                  allocations: 0 (zero-copy)
+                </span>
+              </div>
+            </motion.div>
+          )}
+
+          {activeTab === "sql" && (
+            <motion.div
+              key="sql"
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.15 }}
+              className="flex-1 flex flex-col justify-between"
+            >
+              <pre className="domain-code-pre">
+                <code className="text-yellow-400">WITH</code>
+                <code> user_cohort AS (</code>
+                {"\n"}
+                <code> SELECT user_id, </code>
+                {"\n"}
+                <code>
+                  {" "}
+                  MIN(created_at) OVER (PARTITION BY user_id) as start_date
+                </code>
+                {"\n"}
+                <code> FROM user_actions</code>
+                {"\n"}
+                <code>)</code>
+                {"\n"}
+                <code className="text-purple-400">SELECT</code>
+                <code> cohort_week, COUNT(DISTINCT user_id)</code>
+                {"\n"}
+                <code className="text-purple-400">FROM</code>
+                <code> user_cohort</code>
+                {"\n"}
+                <code className="text-purple-400">WHERE</code>
+                <code> start_date &gt;= '2026-01-01'</code>
+                {"\n"}
+                <code className="text-purple-400">GROUP BY</code>
+                <code> 1 ORDER BY 1 ASC;</code>
+              </pre>
+              <div className="domain-metrics-row">
+                <span className="domain-metric-badge green">
+                  cost: 4.88 (index scan)
+                </span>
+                <span className="domain-metric-badge green">
+                  execution: 12ms
+                </span>
+              </div>
+            </motion.div>
+          )}
+
+          {activeTab === "product" && (
+            <motion.div
+              key="product"
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.15 }}
+              className="flex-1 flex flex-col justify-between"
+            >
+              <div className="product-funnel-container">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[10px] font-mono text-[var(--landing-fg-muted)]">
+                    Conversion Funnel
+                  </span>
+                  <span className="text-[10px] font-mono text-emerald-400">
+                    +4.2% W/W
+                  </span>
+                </div>
+                {[
+                  { label: "Onboard", val: "92%", width: "92%" },
+                  { label: "Search", val: "74%", width: "74%" },
+                  { label: "Checkout", val: "45%", width: "45%" },
+                  { label: "Pay Success", val: "28%", width: "28%" },
+                ].map((step, idx) => (
+                  <div key={idx} className="funnel-step">
+                    <span className="funnel-label">{step.label}</span>
+                    <div className="funnel-bar-wrapper">
+                      <div
+                        className="funnel-bar"
+                        style={{ width: step.width }}
+                      />
+                    </div>
+                    <span className="funnel-value">{step.val}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="domain-metrics-row">
+                <span className="domain-metric-badge blue">
+                  North Star: Purchase CR
+                </span>
+                <span className="domain-metric-badge red">
+                  Dropoff: Checkout (-38%)
+                </span>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </div>
+  );
+}
+
 export function CustomInterviews() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isMobile, setIsMobile] = useState(false);
@@ -405,60 +742,156 @@ export function CustomInterviews() {
   });
 
   // Smooth springs for desktop scrolling
+  // CARD 1: DSA
   const dsaOpacity = useSpring(
-    useTransform(scrollYProgress, [0, 0.35, 0.5, 1], [1, 1, 0, 0]),
+    useTransform(scrollYProgress, [0, 0.15, 0.25, 1], [1, 1, 0, 0]),
     { stiffness: 100, damping: 20 },
   );
   const dsaTextY = useSpring(
-    useTransform(scrollYProgress, [0, 0.35, 0.5, 1], [0, 0, -240, -240]),
+    useTransform(scrollYProgress, [0, 0.15, 0.25, 1], [0, 0, -200, -200]),
     { stiffness: 100, damping: 20 },
   );
   const dsaVisualY = useSpring(
-    useTransform(scrollYProgress, [0, 0.3, 0.5, 1], [0, 0, -320, -320]),
+    useTransform(scrollYProgress, [0, 0.15, 0.25, 1], [0, 0, -250, -250]),
     { stiffness: 100, damping: 20 },
   );
   const dsaScale = useSpring(
-    useTransform(scrollYProgress, [0, 0.35, 0.5, 1], [1, 1, 0.95, 0.95]),
+    useTransform(scrollYProgress, [0, 0.15, 0.25, 1], [1, 1, 0.95, 0.95]),
     { stiffness: 100, damping: 20 },
   );
   const dsaBlurVal = useSpring(
-    useTransform(scrollYProgress, [0, 0.35, 0.5, 1], [0, 0, 8, 8]),
+    useTransform(scrollYProgress, [0, 0.15, 0.25, 1], [0, 0, 8, 8]),
     { stiffness: 100, damping: 20 },
   );
   const dsaBlur = useMotionTemplate`blur(${dsaBlurVal}px)`;
 
+  // CARD 2: System Design
   const sysOpacity = useSpring(
-    useTransform(scrollYProgress, [0, 0.45, 0.6, 1], [0, 0, 1, 1]),
+    useTransform(
+      scrollYProgress,
+      [0, 0.15, 0.25, 0.4, 0.5, 1],
+      [0, 0, 1, 1, 0, 0],
+    ),
     { stiffness: 100, damping: 20 },
   );
   const sysTextY = useSpring(
-    useTransform(scrollYProgress, [0, 0.45, 0.6, 1], [240, 240, 0, 0]),
+    useTransform(
+      scrollYProgress,
+      [0, 0.15, 0.25, 0.4, 0.5, 1],
+      [200, 200, 0, 0, -200, -200],
+    ),
     { stiffness: 100, damping: 20 },
   );
   const sysVisualY = useSpring(
-    useTransform(scrollYProgress, [0, 0.45, 0.65, 1], [320, 320, 0, 0]),
+    useTransform(
+      scrollYProgress,
+      [0, 0.15, 0.25, 0.4, 0.5, 1],
+      [250, 250, 0, 0, -250, -250],
+    ),
     { stiffness: 100, damping: 20 },
   );
   const sysScale = useSpring(
-    useTransform(scrollYProgress, [0, 0.45, 0.6, 1], [0.95, 0.95, 1, 1]),
+    useTransform(
+      scrollYProgress,
+      [0, 0.15, 0.25, 0.4, 0.5, 1],
+      [0.95, 0.95, 1, 1, 0.95, 0.95],
+    ),
     { stiffness: 100, damping: 20 },
   );
   const sysBlurVal = useSpring(
-    useTransform(scrollYProgress, [0, 0.45, 0.6, 1], [8, 8, 0, 0]),
+    useTransform(
+      scrollYProgress,
+      [0, 0.15, 0.25, 0.4, 0.5, 1],
+      [8, 8, 0, 0, 8, 8],
+    ),
     { stiffness: 100, damping: 20 },
   );
   const sysBlur = useMotionTemplate`blur(${sysBlurVal}px)`;
 
-  // Interactivity management
+  // CARD 3: Behavioral & Discussion
+  const discOpacity = useSpring(
+    useTransform(
+      scrollYProgress,
+      [0, 0.4, 0.5, 0.65, 0.75, 1],
+      [0, 0, 1, 1, 0, 0],
+    ),
+    { stiffness: 100, damping: 20 },
+  );
+  const discTextY = useSpring(
+    useTransform(
+      scrollYProgress,
+      [0, 0.4, 0.5, 0.65, 0.75, 1],
+      [200, 200, 0, 0, -200, -200],
+    ),
+    { stiffness: 100, damping: 20 },
+  );
+  const discVisualY = useSpring(
+    useTransform(
+      scrollYProgress,
+      [0, 0.4, 0.5, 0.65, 0.75, 1],
+      [250, 250, 0, 0, -250, -250],
+    ),
+    { stiffness: 100, damping: 20 },
+  );
+  const discScale = useSpring(
+    useTransform(
+      scrollYProgress,
+      [0, 0.4, 0.5, 0.65, 0.75, 1],
+      [0.95, 0.95, 1, 1, 0.95, 0.95],
+    ),
+    { stiffness: 100, damping: 20 },
+  );
+  const discBlurVal = useSpring(
+    useTransform(
+      scrollYProgress,
+      [0, 0.4, 0.5, 0.65, 0.75, 1],
+      [8, 8, 0, 0, 8, 8],
+    ),
+    { stiffness: 100, damping: 20 },
+  );
+  const discBlur = useMotionTemplate`blur(${discBlurVal}px)`;
+
+  // CARD 4: Domain & Company-Specific
+  const domOpacity = useSpring(
+    useTransform(scrollYProgress, [0, 0.65, 0.75, 1], [0, 0, 1, 1]),
+    { stiffness: 100, damping: 20 },
+  );
+  const domTextY = useSpring(
+    useTransform(scrollYProgress, [0, 0.65, 0.75, 1], [200, 200, 0, 0]),
+    { stiffness: 100, damping: 20 },
+  );
+  const domVisualY = useSpring(
+    useTransform(scrollYProgress, [0, 0.65, 0.75, 1], [250, 250, 0, 0]),
+    { stiffness: 100, damping: 20 },
+  );
+  const domScale = useSpring(
+    useTransform(scrollYProgress, [0, 0.65, 0.75, 1], [0.95, 0.95, 1, 1]),
+    { stiffness: 100, damping: 20 },
+  );
+  const domBlurVal = useSpring(
+    useTransform(scrollYProgress, [0, 0.65, 0.75, 1], [8, 8, 0, 0]),
+    { stiffness: 100, damping: 20 },
+  );
+  const domBlur = useMotionTemplate`blur(${domBlurVal}px)`;
+
+  // Interactivity pointerEvents management
   const dsaPointerEvents = useTransform(scrollYProgress, (v) =>
-    v < 0.5 ? "auto" : "none",
+    v < 0.2 ? "auto" : "none",
   );
   const sysPointerEvents = useTransform(scrollYProgress, (v) =>
-    v >= 0.5 ? "auto" : "none",
+    v >= 0.2 && v < 0.45 ? "auto" : "none",
+  );
+  const discPointerEvents = useTransform(scrollYProgress, (v) =>
+    v >= 0.45 && v < 0.7 ? "auto" : "none",
+  );
+  const domPointerEvents = useTransform(scrollYProgress, (v) =>
+    v >= 0.7 ? "auto" : "none",
   );
 
   const dsa = interviews[0]!;
   const sys = interviews[1]!;
+  const disc = interviews[2]!;
+  const dom = interviews[3]!;
 
   if (isMobile) {
     return (
@@ -469,14 +902,14 @@ export function CustomInterviews() {
             INTERVIEW TYPES
           </span>
           <h2 className="landing-display text-[clamp(2rem,5vw,4rem)] leading-[1.05] tracking-[-0.03em] text-[var(--landing-fg)] max-w-2xl">
-            Practice the rounds that{" "}
+            Master the exact rounds they will{" "}
             <span className="landing-serif italic text-[var(--landing-accent)]">
-              actually matter.
+              test you on.
             </span>
           </h2>
           <p className="text-[14px] leading-relaxed text-[var(--landing-fg-muted)] max-w-lg mt-3">
-            From algorithmic coding to system design — every interview format
-            real companies use.
+            From low-latency C++ systems to behavioral deep-dives — practice in
+            environments tailored for elite technical roles.
           </p>
         </div>
 
@@ -522,7 +955,10 @@ export function CustomInterviews() {
                 </div>
               </div>
               <div className="flex justify-center w-full">
-                {item.id === "dsa" ? <CodeMockup /> : <ArchDiagram />}
+                {item.id === "dsa" && <CodeMockup />}
+                {item.id === "system-design" && <ArchDiagram />}
+                {item.id === "discussion" && <DiscussionMockup />}
+                {item.id === "domain" && <DomainMockup />}
               </div>
             </div>
           ))}
@@ -541,14 +977,14 @@ export function CustomInterviews() {
               INTERVIEW TYPES
             </span>
             <h2 className="landing-display text-[clamp(2rem,4vw,3.5rem)] leading-[1.05] tracking-[-0.03em] text-[var(--landing-fg)] max-w-2xl m-0">
-              Practice the rounds that{" "}
+              Master the exact rounds they will{" "}
               <span className="landing-serif italic text-[var(--landing-accent)]">
-                actually matter.
+                test you on.
               </span>
             </h2>
             <p className="text-[13.5px] leading-relaxed text-[var(--landing-fg-muted)] max-w-lg mt-2 mb-0">
-              From algorithmic coding to system design — every interview format
-              real companies use.
+              From low-latency C++ systems to behavioral deep-dives — practice
+              in environments tailored for elite technical roles.
             </p>
           </div>
 
@@ -667,6 +1103,122 @@ export function CustomInterviews() {
                 style={{ y: sysVisualY }}
               >
                 <ArchDiagram />
+              </motion.div>
+            </motion.div>
+
+            {/* Card 3: Behavioral & Discussion */}
+            <motion.div
+              style={{
+                opacity: discOpacity,
+                scale: discScale,
+                filter: discBlur,
+                pointerEvents: discPointerEvents,
+              }}
+              className="grid-overlap-item grid lg:grid-cols-[1fr_1.05fr] gap-10 lg:gap-16 items-center w-full"
+            >
+              {/* Text Side */}
+              <motion.div
+                className="flex flex-col gap-4"
+                style={{ y: discTextY }}
+              >
+                <span
+                  className="custom-status self-start"
+                  style={{
+                    color: disc.status.color,
+                    borderColor: `${disc.status.color}40`,
+                  }}
+                >
+                  <span
+                    className="custom-status-dot"
+                    style={{ background: disc.status.color }}
+                  />
+                  {disc.status.label}
+                </span>
+
+                <h2 className="landing-display text-[clamp(1.8rem,3.5vw,2.8rem)] leading-[1.05] tracking-[-0.03em] text-[var(--landing-fg)] m-0">
+                  {disc.title}{" "}
+                  <span className="block landing-serif italic text-[var(--landing-accent)]">
+                    {disc.accent}
+                  </span>
+                </h2>
+
+                <p className="text-[13.5px] leading-[1.75] text-[var(--landing-fg-muted)] max-w-sm m-0">
+                  {disc.description}
+                </p>
+
+                <div className="flex flex-wrap gap-2 mt-1">
+                  {disc.features.map((f) => (
+                    <span key={f} className="custom-feature-pill">
+                      {f}
+                    </span>
+                  ))}
+                </div>
+              </motion.div>
+
+              {/* Visual Side */}
+              <motion.div
+                className="flex justify-center"
+                style={{ y: discVisualY }}
+              >
+                <DiscussionMockup />
+              </motion.div>
+            </motion.div>
+
+            {/* Card 4: Domain & Company-Specific */}
+            <motion.div
+              style={{
+                opacity: domOpacity,
+                scale: domScale,
+                filter: domBlur,
+                pointerEvents: domPointerEvents,
+              }}
+              className="grid-overlap-item grid lg:grid-cols-[1fr_1.05fr] gap-10 lg:gap-16 items-center w-full"
+            >
+              {/* Text Side */}
+              <motion.div
+                className="flex flex-col gap-4"
+                style={{ y: domTextY }}
+              >
+                <span
+                  className="custom-status self-start"
+                  style={{
+                    color: dom.status.color,
+                    borderColor: `${dom.status.color}40`,
+                  }}
+                >
+                  <span
+                    className="custom-status-dot"
+                    style={{ background: dom.status.color }}
+                  />
+                  {dom.status.label}
+                </span>
+
+                <h2 className="landing-display text-[clamp(1.8rem,3.5vw,2.8rem)] leading-[1.05] tracking-[-0.03em] text-[var(--landing-fg)] m-0">
+                  {dom.title}{" "}
+                  <span className="block landing-serif italic text-[var(--landing-accent)]">
+                    {dom.accent}
+                  </span>
+                </h2>
+
+                <p className="text-[13.5px] leading-[1.75] text-[var(--landing-fg-muted)] max-w-sm m-0">
+                  {dom.description}
+                </p>
+
+                <div className="flex flex-wrap gap-2 mt-1">
+                  {dom.features.map((f) => (
+                    <span key={f} className="custom-feature-pill">
+                      {f}
+                    </span>
+                  ))}
+                </div>
+              </motion.div>
+
+              {/* Visual Side */}
+              <motion.div
+                className="flex justify-center"
+                style={{ y: domVisualY }}
+              >
+                <DomainMockup />
               </motion.div>
             </motion.div>
           </div>

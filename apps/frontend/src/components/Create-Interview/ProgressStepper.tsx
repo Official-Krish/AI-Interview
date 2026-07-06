@@ -6,6 +6,7 @@ interface ProgressStepperProps {
 }
 
 const steps = [
+  { label: "Field", sub: "Role category" },
   { label: "Company", sub: "Select company" },
   { label: "Role", sub: "Choose position" },
   { label: "Round", sub: "Interview type" },

@@ -1,11 +1,25 @@
 import { WebSocket as WsWebSocket } from "ws";
 import type { GeminiSession } from "../gemini";
 import { cleanup, initiateClosing } from "./helpers/cleanup";
-import { safeIndex, safePhase } from "./orchestrator";
+import { safeIndex, safePhase, type LiveAssessment } from "./tools";
+import { createDefaultRuntime, type InterviewerRuntime } from "./runtime";
+import {
+  createDeterministicState,
+  type DeterministicState,
+} from "./deterministic";
 import { handleInit } from "./handlers/init";
 import { handleAudioChunk, handleAudioStreamEnd } from "./handlers/audio";
 import { prisma } from "../lib/prisma";
 import type { PacingTracker } from "./helpers/pacing";
+
+export interface CandidateState {
+  nervousness: "low" | "medium" | "high";
+  engagement: "low" | "medium" | "high";
+  confidence: "low" | "medium" | "high";
+  currentSignal: "none" | "struggling" | "going_deep" | "off_track" | "strong";
+}
+
+export type { LiveAssessment };
 
 export class InterviewConnection {
   interviewId: string | null = null;
@@ -23,12 +37,31 @@ export class InterviewConnection {
   waitingForAiResponse = false;
   isQueued = false;
   isDsaMode = false;
+  isSqlMode = false;
+  isQuantMode = false;
+  isHftMode = false;
   dsaTransitioned = false;
+  candidateState: CandidateState = {
+    nervousness: "low",
+    engagement: "medium",
+    confidence: "medium",
+    currentSignal: "none",
+  };
   isSystemDesign = false;
+  isCanvasMode = false;
+  canvasQuestionIndex = 0;
+  isDiscussionMode = false;
   heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   pongTimeoutId: ReturnType<typeof setTimeout> | null = null;
   lastAudioTime = 0;
+  audioChunksSinceLastTurn = 0;
   canvasInactivityTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // Canvas rate-limiting (per-connection to avoid cross-interview interference)
+  canvasDiffCount = 0;
+  canvasExampleCount = 0;
+  lastCanvasDiffTime = 0;
+  lastCanvasExampleTime = 0;
 
   // Silence detection
   silenceTimer: ReturnType<typeof setInterval> | null = null;
@@ -38,6 +71,21 @@ export class InterviewConnection {
   silencePromptCount = 0;
   lastSilencePromptTime = 0;
   silencePromptActive = false;
+  silenceTier: "standard" | "extended" | "design_critique" = "standard";
+
+  // Live assessments
+  liveAssessments: LiveAssessment[] = [];
+  interruptionCount = 0;
+
+  // Interviewer runtime state
+  runtime: InterviewerRuntime = createDefaultRuntime();
+
+  // Deterministic scoring state
+  deterministic: DeterministicState = createDeterministicState();
+
+  // Function calling
+  lastFunctionHash: string | null = null; // dedup: hash of last function call name + args
+  canceledToolCallIds = new Set<string>();
 
   // Pacing system
   pacing: PacingTracker | null = null;
@@ -63,6 +111,7 @@ export class InterviewConnection {
     readonly client: WsWebSocket,
     readonly wsMap: Map<string, WsWebSocket>,
     readonly startCallbacks: Map<string, () => Promise<void>>,
+    readonly cleaningSet: Set<string>,
     readonly onDequeue: () => Promise<void>,
     readonly onPositionUpdate: () => Promise<void>,
   ) {
@@ -83,18 +132,29 @@ export class InterviewConnection {
       try {
         const msg = JSON.parse(rawData.toString());
         await this.handleMessage(msg);
-      } catch {
-        this.safeSend({ error: "Invalid JSON" });
+      } catch (err) {
+        // Log unexpected errors to prevent silent crashes
+        if (err instanceof SyntaxError) {
+          this.safeSend({ error: "Invalid JSON" });
+        } else {
+          console.error("[ws] error handling message:", err);
+          this.safeSend({ error: "Internal error processing message" });
+        }
       }
     });
 
     this.client.on("close", () => {
       console.log("[ws] candidate disconnected");
-      cleanup(this);
+      cleanup(this).catch((err) => {
+        console.error("[ws] cleanup on close failed:", err);
+      });
     });
 
-    this.client.on("error", () => {
-      cleanup(this);
+    this.client.on("error", (err) => {
+      console.error("[ws] client error:", err);
+      cleanup(this).catch((cleanupErr) => {
+        console.error("[ws] cleanup on error failed:", cleanupErr);
+      });
     });
   }
 
@@ -149,20 +209,13 @@ export class InterviewConnection {
         if (prevMsg.code === undefined || prevMsg.code.length > 100000) break;
         const idx = safeIndex(prevMsg.questionIndex);
         const phase = safePhase(prevMsg.phase);
+        const effectiveLang = this.isHftMode
+          ? "cpp"
+          : (prevMsg.language ?? "javascript");
         this.gemini.send(
           JSON.stringify({
-            clientContent: {
-              turns: [
-                {
-                  role: "user",
-                  parts: [
-                    {
-                      text: `[Code Preview — Question ${idx}, ${phase} phase, not yet saved]\n\n\`\`\`${prevMsg.language ?? "javascript"}\n${prevMsg.code}\n\`\`\``,
-                    },
-                  ],
-                },
-              ],
-              turnComplete: true,
+            realtimeInput: {
+              text: `[Code Preview — Question ${idx}, ${phase} phase, not yet saved]\n\n\`\`\`${effectiveLang}\n${prevMsg.code}\n\`\`\``,
             },
           }),
         );
@@ -180,21 +233,14 @@ export class InterviewConnection {
         if (codeMsg.code === undefined || codeMsg.code.length > 100000) break;
         const idx = safeIndex(codeMsg.questionIndex);
         const phase = safePhase(codeMsg.phase);
-        const codeText = `\`\`\`${codeMsg.language ?? "javascript"}\n${codeMsg.code}\n\`\`\``;
+        const effectiveLang = this.isHftMode
+          ? "cpp"
+          : (codeMsg.language ?? "javascript");
+        const codeText = `\`\`\`${effectiveLang}\n${codeMsg.code}\n\`\`\``;
         this.gemini.send(
           JSON.stringify({
-            clientContent: {
-              turns: [
-                {
-                  role: "user",
-                  parts: [
-                    {
-                      text: `[Code Snapshot for Question ${idx} during ${phase} phase]\n\n${codeText}`,
-                    },
-                  ],
-                },
-              ],
-              turnComplete: true,
+            realtimeInput: {
+              text: `[Code Snapshot for Question ${idx} during ${phase} phase]\n\n${codeText}`,
             },
           }),
         );
@@ -234,18 +280,8 @@ export class InterviewConnection {
           const idx = safeIndex(phaseMsg.questionIndex);
           this.gemini.send(
             JSON.stringify({
-              clientContent: {
-                turns: [
-                  {
-                    role: "user",
-                    parts: [
-                      {
-                        text: `[Phase Update] Moving to "${safePhase(phaseMsg.phase)}" phase for question ${idx}.`,
-                      },
-                    ],
-                  },
-                ],
-                turnComplete: true,
+              realtimeInput: {
+                text: `[Phase Update] Moving to "${safePhase(phaseMsg.phase)}" phase for question ${idx}.`,
               },
             }),
           );
@@ -259,18 +295,8 @@ export class InterviewConnection {
         const idx = safeIndex(hintMsg.questionIndex);
         this.gemini.send(
           JSON.stringify({
-            clientContent: {
-              turns: [
-                {
-                  role: "user",
-                  parts: [
-                    {
-                      text: `[Hint Request] The candidate is asking for a hint on Question ${idx}. Provide a subtle hint that guides them toward the solution without giving it away. Use a Socratic approach — ask a leading question or point them toward the relevant data structure/algorithm to consider.`,
-                    },
-                  ],
-                },
-              ],
-              turnComplete: true,
+            realtimeInput: {
+              text: `[Hint Request] The candidate is asking for a hint on Question ${idx}. Provide a subtle hint that guides them toward the solution without giving it away. Use a Socratic approach — ask a leading question or point them toward the relevant data structure/algorithm to consider.`,
             },
           }),
         );
@@ -282,6 +308,18 @@ export class InterviewConnection {
         const langMsg = msg as { language?: string };
         const newLang = langMsg.language;
         if (!newLang) break;
+
+        if (this.isHftMode) {
+          console.log(
+            `[hft] rejecting language change to "${newLang}" — HFT mode locks C++`,
+          );
+          this.safeSend({
+            type: "language_change_rejected",
+            language: "cpp",
+            reason: "HFT coding mode is locked to C++",
+          });
+          break;
+        }
         console.log(`[dsa] language change to "${newLang}"`);
 
         try {
@@ -292,18 +330,8 @@ export class InterviewConnection {
 
           this.gemini.send(
             JSON.stringify({
-              clientContent: {
-                turns: [
-                  {
-                    role: "user",
-                    parts: [
-                      {
-                        text: `[Language Change] The candidate has switched to coding in **${newLang}**. Adjust your code review expectations and feedback accordingly. Be aware of ${newLang}-specific idioms, syntax, and conventions.`,
-                      },
-                    ],
-                  },
-                ],
-                turnComplete: true,
+              realtimeInput: {
+                text: `[Language Change] The candidate has switched to coding in **${newLang}**. Adjust your code review expectations and feedback accordingly. Be aware of ${newLang}-specific idioms, syntax, and conventions.`,
               },
             }),
           );
@@ -343,18 +371,8 @@ export class InterviewConnection {
 
         this.gemini.send(
           JSON.stringify({
-            clientContent: {
-              turns: [
-                {
-                  role: "user",
-                  parts: [
-                    {
-                      text: `[Canvas Snapshot]\n\n${JSON.stringify(canvasMsg.state)}`,
-                    },
-                  ],
-                },
-              ],
-              turnComplete: false,
+            realtimeInput: {
+              text: `[Canvas Snapshot]\n\n${JSON.stringify(canvasMsg.state)}`,
             },
           }),
         );
@@ -366,13 +384,12 @@ export class InterviewConnection {
           if (silenceMs > 8_000 && !this.canvasInactivityTimer) {
             this.canvasInactivityTimer = setTimeout(() => {
               this.canvasInactivityTimer = null;
+              // If audio arrived while timer was pending, skip to avoid race
+              if (Date.now() - this.lastAudioTime < 5_000) return;
               if (this.gemini && !this.closingMode && !this.finalized) {
                 this.gemini.send(
                   JSON.stringify({
-                    clientContent: {
-                      turns: [],
-                      turnComplete: true,
-                    },
+                    realtimeInput: { completeTurn: true },
                   }),
                 );
                 this.waitingForAiResponse = true;

@@ -10,6 +10,9 @@ import { buildDepthDirective } from "../shared/depth";
 import { buildGeneralPrinciples } from "../shared/principles";
 import { buildDirectingDirective } from "../shared/directing";
 import { buildPacingDirective, VOICE_BUDGETS } from "../shared/pacing";
+import { buildCriticalConstraints } from "../shared/constraints";
+
+export { buildScenarioPrompt } from "./scenario";
 
 export function buildInterviewPrompt(input: PromptInput): string {
   const role =
@@ -123,6 +126,7 @@ DEPTH CONTROL:
       input.roleTopics,
       input.roleEvaluationCriteria,
       input.roleMustProbe,
+      input.seniorityLabel,
     ),
   );
   sections.push(buildRoundDirective(input.interviewRound));
@@ -202,11 +206,12 @@ Note these for potential follow-up probes.`,
 7. After 4-5 questions, provide a brief verbal summary of strengths and areas for improvement.
 8. Do NOT ask more than one question at a time.
 9. Keep responses spoken-word friendly — no markdown, no code blocks in speech (describe code verbally instead).
-   10. Keep the conversation flowing naturally. When you need a moment to think, use brief filler phrases like "Let me think about that..." or "That's a good question..." rather than dead silence. Respond promptly but don't rush — occasional thoughtful pauses make the interaction feel human.`,
+10. Keep the conversation flowing naturally. When you need a moment to think, use brief filler phrases like "Let me think about that..." or "That's a good question..." rather than dead silence. Respond promptly but don't rush — occasional thoughtful pauses make the interaction feel human.`,
   );
 
   sections.push(buildDirectingDirective());
   sections.push(buildPacingDirective(input.durationMinutes, VOICE_BUDGETS));
+  sections.push(buildCriticalConstraints());
 
   return sections.join("\n\n");
 }

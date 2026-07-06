@@ -19,12 +19,6 @@ function resampleTo16kHz(
   return output;
 }
 
-interface VadOptions {
-  threshold?: number;
-  timeoutMs?: number;
-  onSilenceEnd?: () => void;
-}
-
 export function useMicrophone() {
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -35,111 +29,68 @@ export function useMicrophone() {
   const [isRecording, setIsRecording] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const onChunkRef = useRef<((base64: string) => void) | null>(null);
-  const vadTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const vadSilenceStartRef = useRef(0);
-  const onSilenceEndRef = useRef<(() => void) | null>(null);
 
-  const stopVad = useCallback(() => {
-    if (vadTimerRef.current) {
-      clearInterval(vadTimerRef.current);
-      vadTimerRef.current = null;
+  const start = useCallback(async (onChunk: (base64: string) => void) => {
+    setError(null);
+    onChunkRef.current = onChunk;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          sampleRate: { ideal: 16000 },
+          echoCancellation: true,
+          noiseSuppression: true,
+        },
+      });
+      streamRef.current = stream;
+
+      const audioCtx = new AudioContext();
+      sampleRateRef.current = audioCtx.sampleRate;
+      audioContextRef.current = audioCtx;
+      const source = audioCtx.createMediaStreamSource(stream);
+      sourceRef.current = source;
+
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 128;
+      analyser.smoothingTimeConstant = 0.8;
+      analyserRef.current = analyser;
+      source.connect(analyser);
+
+      const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+      processorRef.current = processor;
+      source.connect(processor);
+      processor.connect(audioCtx.destination);
+
+      processor.onaudioprocess = (e) => {
+        const input = e.inputBuffer.getChannelData(0);
+        const resampled = resampleTo16kHz(input, sampleRateRef.current);
+        const len = resampled.length;
+        const pcm16 = new Int16Array(len);
+        for (let i = 0; i < len; i++) {
+          const s = Math.max(-1, Math.min(1, resampled[i]!));
+          pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+        }
+        const bytes = new Uint8Array(pcm16.buffer);
+        const blen = bytes.length;
+        let binary = "";
+        for (let i = 0; i < blen; i++) {
+          binary += String.fromCharCode(bytes[i]!);
+        }
+        onChunkRef.current?.(btoa(binary));
+      };
+
+      setIsRecording(true);
+    } catch (err) {
+      const msg =
+        err instanceof DOMException
+          ? "Microphone access denied."
+          : "Failed to access microphone";
+      setError(msg);
+      throw err;
     }
-    vadSilenceStartRef.current = 0;
   }, []);
 
-  const start = useCallback(
-    async (onChunk: (base64: string) => void, vadOptions?: VadOptions) => {
-      setError(null);
-      onChunkRef.current = onChunk;
-      onSilenceEndRef.current = vadOptions?.onSilenceEnd ?? null;
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            channelCount: 1,
-            sampleRate: { ideal: 16000 },
-            echoCancellation: true,
-            noiseSuppression: true,
-          },
-        });
-        streamRef.current = stream;
-
-        const audioCtx = new AudioContext();
-        sampleRateRef.current = audioCtx.sampleRate;
-        audioContextRef.current = audioCtx;
-        const source = audioCtx.createMediaStreamSource(stream);
-        sourceRef.current = source;
-
-        const analyser = audioCtx.createAnalyser();
-        analyser.fftSize = 128;
-        analyser.smoothingTimeConstant = 0.8;
-        analyserRef.current = analyser;
-        source.connect(analyser);
-
-        const processor = audioCtx.createScriptProcessor(4096, 1, 1);
-        processorRef.current = processor;
-        source.connect(processor);
-        processor.connect(audioCtx.destination);
-
-        processor.onaudioprocess = (e) => {
-          const input = e.inputBuffer.getChannelData(0);
-          const resampled = resampleTo16kHz(input, sampleRateRef.current);
-          const len = resampled.length;
-          const pcm16 = new Int16Array(len);
-          for (let i = 0; i < len; i++) {
-            const s = Math.max(-1, Math.min(1, resampled[i]!));
-            pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
-          }
-          const bytes = new Uint8Array(pcm16.buffer);
-          const blen = bytes.length;
-          let binary = "";
-          for (let i = 0; i < blen; i++) {
-            binary += String.fromCharCode(bytes[i]!);
-          }
-          onChunkRef.current?.(btoa(binary));
-        };
-
-        if (vadOptions?.onSilenceEnd) {
-          const threshold = vadOptions.threshold ?? 0.02;
-          const timeoutMs = vadOptions.timeoutMs ?? 5000;
-          stopVad();
-          const dataArray = new Uint8Array(analyser.frequencyBinCount);
-          vadTimerRef.current = setInterval(() => {
-            analyser.getByteTimeDomainData(dataArray);
-            let sum = 0;
-            for (let i = 0; i < dataArray.length; i++) {
-              const val = (dataArray[i]! - 128) / 128;
-              sum += val * val;
-            }
-            const rms = Math.sqrt(sum / dataArray.length);
-
-            if (rms < threshold) {
-              if (vadSilenceStartRef.current === 0) {
-                vadSilenceStartRef.current = Date.now();
-              } else if (Date.now() - vadSilenceStartRef.current >= timeoutMs) {
-                stopVad();
-                onSilenceEndRef.current?.();
-              }
-            } else {
-              vadSilenceStartRef.current = 0;
-            }
-          }, 300);
-        }
-
-        setIsRecording(true);
-      } catch (err) {
-        const msg =
-          err instanceof DOMException
-            ? "Microphone access denied."
-            : "Failed to access microphone";
-        setError(msg);
-        throw err;
-      }
-    },
-    [stopVad],
-  );
-
   const stop = useCallback(() => {
-    stopVad();
     processorRef.current?.disconnect();
     sourceRef.current?.disconnect();
     audioContextRef.current?.close();
@@ -150,7 +101,7 @@ export function useMicrophone() {
     audioContextRef.current = null;
     analyserRef.current = null;
     setIsRecording(false);
-  }, [stopVad]);
+  }, []);
 
   return { start, stop, isRecording, error, analyserRef };
 }

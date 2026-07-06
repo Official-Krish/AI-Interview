@@ -98,14 +98,22 @@ model InterviewSession {
   companyId           String?
   companyName         String?
   roleTitle           String?
+  roleCategory        String?
   interviewRound      String?
   startedAt           DateTime?
   endedAt             DateTime?
-  overallScore        Float?
-  communicationScore  Float?
-  technicalScore      Float?
-  problemSolvingScore Float?
-  durationSeconds     Int?
+  overallScore              Float?
+  overallConfidence         Float?
+  communicationScore        Float?
+  communicationConfidence   Float?
+  technicalScore            Float?
+  technicalConfidence       Float?
+  problemSolvingScore       Float?
+  problemSolvingConfidence  Float?
+  momentum                  String?
+  momentumSlope             Float?
+  discrepancies             Json?
+  durationSeconds           Int?
   position            String?
   jobDescription      String?            @db.Text
   resumeId            String?
@@ -123,6 +131,7 @@ model SystemDesignQuestion {
   id                  String                @id @default(cuid())
   companyName         String?
   position            String?
+  roleCategory        String?
   interviewDepth      InterviewDepth
   interviewStyle      InterviewStyle
   title               String
@@ -135,7 +144,7 @@ model SystemDesignQuestion {
   createdAt           DateTime              @default(now())
   seenBy              SdQuestionSeenByUser[]
 
-  @@index([companyName, position])
+  @@index([companyName, position, roleCategory])
 }
 
 model SdQuestionSeenByUser {
@@ -216,6 +225,8 @@ model InterviewTurn {
   answerStartMs   Int?
   answerEndMs     Int?
   score           Float?
+  weight          Float?
+  evidence        String?          @db.Text
   feedback        String?          @db.Text
   createdAt       DateTime         @default(now())
   interview       InterviewSession @relation(fields: [interviewId], references: [id])
@@ -278,8 +289,9 @@ enum InterviewDepth {
 
 enum InterviewMode {
   VOICE
-  DSA
-  SYSTEM_DESIGN
+  LIVE_CODE
+  LIVE_CANVAS
+  DISCUSSION
 }
 
 enum LeetCodeDifficulty {

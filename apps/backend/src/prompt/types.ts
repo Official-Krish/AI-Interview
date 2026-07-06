@@ -38,6 +38,8 @@ export interface PromptInput {
   overallWeakest: string | null;
   overallPatterns: string[];
   scoreTrendLast5: "improving" | "stable" | "declining" | null;
+  roleCategory?: string | null;
+  seniorityLabel?: string | null;
 }
 
 export interface SystemDesignPromptInput {
@@ -70,6 +72,8 @@ export interface SystemDesignPromptInput {
   overallWeakest: string | null;
   overallPatterns: string[];
   scoreTrendLast5: "improving" | "stable" | "declining" | null;
+  roleCategory?: string | null;
+  seniorityLabel?: string | null;
 }
 
 export interface PacingBudget {

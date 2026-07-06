@@ -4,8 +4,32 @@ import {
   evaluateDsaSession,
   evaluateSystemDesignSession,
 } from "../services/evaluate";
-
-export async function finalizeInterview(interviewId: string) {
+import type { InterviewerRuntime } from "./runtime";
+import type { DeterministicState } from "./deterministic";
+export async function finalizeInterview(
+  interviewId: string,
+  liveAssessments?: Array<{
+    orderNumber: number;
+    confidence: "low" | "medium" | "high";
+    nervousness: "low" | "medium" | "high";
+    engagement: "low" | "medium" | "high";
+    clarity: "low" | "medium" | "high";
+    fluency: "low" | "medium" | "high";
+    signal: "none" | "strong" | "struggling" | "off_track" | "going_deep";
+    rationale: string;
+  }>,
+  interruptionCount?: number,
+  runtime?: Pick<
+    InterviewerRuntime,
+    | "notes"
+    | "simplifiedQuestions"
+    | "followUps"
+    | "recoveryEvents"
+    | "overconfidenceDetected"
+    | "constraints"
+  >,
+  deterministic?: DeterministicState,
+) {
   try {
     const interview = await prisma.interviewSession.findUnique({
       where: { id: interviewId },
@@ -32,16 +56,33 @@ export async function finalizeInterview(interviewId: string) {
       `[ws] finalizing interview ${interviewId}, triggering evaluation`,
     );
 
-    if (interview.mode === "DSA") {
-      evaluateDsaSession(interviewId).catch((err) => {
+    if (interview.mode === "LIVE_CODE") {
+      evaluateDsaSession(
+        interviewId,
+        liveAssessments,
+        interruptionCount,
+        runtime,
+        deterministic,
+      ).catch((err) => {
         console.error("DSA evaluation failed:", err);
       });
-    } else if (interview.mode === "SYSTEM_DESIGN") {
-      evaluateSystemDesignSession(interviewId).catch((err) => {
+    } else if (interview.mode === "LIVE_CANVAS") {
+      evaluateSystemDesignSession(
+        interviewId,
+        liveAssessments,
+        interruptionCount,
+        runtime,
+        deterministic,
+      ).catch((err) => {
         console.error("System Design evaluation failed:", err);
       });
     } else {
-      evaluateInterview(interviewId).catch((err) => {
+      evaluateInterview(interviewId, {
+        liveAssessments,
+        interruptionCount,
+        runtime,
+        deterministic,
+      }).catch((err) => {
         console.error("Evaluation failed:", err);
         prisma.interviewSession
           .update({

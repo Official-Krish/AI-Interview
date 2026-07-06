@@ -3,10 +3,15 @@ export function buildRoleContext(
   topics: string[] | null,
   evaluationCriteria: string[] | null,
   mustProbe: string[] | null,
+  seniorityLabel?: string | null,
 ): string {
   if (!roleTitle) return "";
 
   const lines: string[] = [`Role: ${roleTitle}`];
+
+  if (seniorityLabel) {
+    lines.push(`Seniority: ${seniorityLabel}`);
+  }
 
   if (topics && topics.length > 0) {
     lines.push("", "Topics:", ...topics.map((t) => `- ${t}`));

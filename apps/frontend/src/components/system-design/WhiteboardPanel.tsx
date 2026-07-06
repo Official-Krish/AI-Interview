@@ -17,6 +17,11 @@ interface WhiteboardPanelProps {
   onCanvasSnapshot: (snapshot: CanvasSnapshot) => void;
   canvasDiff: CanvasDiffAction[] | null;
   onClearCanvasDiff: () => void;
+  canvasFocus?: {
+    nodeIds: string[];
+    label: string | null;
+  } | null;
+  onClearCanvasFocus?: () => void;
 }
 
 type Tab = "whiteboard" | "problem";
@@ -34,6 +39,8 @@ export function WhiteboardPanel({
   onCanvasSnapshot,
   canvasDiff,
   onClearCanvasDiff,
+  canvasFocus,
+  onClearCanvasFocus,
 }: WhiteboardPanelProps) {
   const [tab, setTab] = useState<Tab>("problem");
   const [canvasReady, setCanvasReady] = useState(false);
@@ -65,6 +72,18 @@ export function WhiteboardPanel({
       onClearCanvasDiff();
     }
   }, [canvasDiff, onClearCanvasDiff]);
+
+  useEffect(() => {
+    if (!canvasFocus || !apiRef.current) return;
+    const api = apiRef.current;
+    const elements = api.getSceneElements();
+    const target = elements.find((el) => canvasFocus.nodeIds.includes(el.id));
+    if (target) api.scrollToContent(target);
+    if (canvasFocus.label) {
+      console.log(`[canvas:focus] ${canvasFocus.label}`);
+    }
+    if (onClearCanvasFocus) onClearCanvasFocus();
+  }, [canvasFocus, onClearCanvasFocus]);
 
   useEffect(() => {
     if (document.querySelector('link[href*="excalidraw"]')) return;

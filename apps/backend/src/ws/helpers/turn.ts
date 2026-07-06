@@ -5,7 +5,14 @@ function cleanQuestionText(conn: InterviewConnection): string {
   return conn.cleanQuestionBuf || conn.questionBuf;
 }
 
-export function isNewQuestion(text: string): boolean {
+export function isNewQuestion(
+  conn: InterviewConnection,
+  text: string,
+): boolean {
+  // Primary signal: function call already handled the transition
+  if (conn.dsaTransitioned) return true;
+
+  // Fallback: text heuristics
   const lower = text.toLowerCase();
   const newQIndicators = [
     "let's move on",

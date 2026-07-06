@@ -39,14 +39,6 @@ ${stageDescriptions}
 
 This is a guide — every candidate is different. You decide what to emphasize and what to skip.
 
-### Emitting Stage Transition Markers
-
-As you move between major sections of the interview, emit an invisible marker to signal the transition:
-
-\`[STAGE:stage_name]\`
-
-Use one of the stage names listed above (e.g., \`[STAGE:deep-dive]\`, \`[STAGE:coding]\`, \`[STAGE:wrap-up]\`). This marker is for the system — do NOT speak it aloud. It helps the pacing system know where you are in the interview flow.
-
 ### Understanding the [PACING] Signal
 
 | Field | Meaning |

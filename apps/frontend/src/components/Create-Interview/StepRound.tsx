@@ -35,6 +35,7 @@ interface StepRoundProps {
   companyId: string | null;
   companyName: string | null;
   roleTitle: string | null;
+  category: string | null;
   selectedRound: string | null;
   customRound: string;
   onSelectRound: (round: string | null) => void;
@@ -48,6 +49,7 @@ export function StepRound({
   companyId,
   companyName,
   roleTitle,
+  category,
   selectedRound,
   customRound,
   onSelectRound,
@@ -77,7 +79,7 @@ export function StepRound({
             margin: "0 0 6px",
           }}
         >
-          Step 3 of 5
+          Step 4 of 6
         </motion.p>
         <motion.h1
           initial={{ opacity: 0, y: 8 }}
@@ -126,6 +128,7 @@ export function StepRound({
       <RoundPicker
         companyId={companyId}
         roleTitle={roleTitle}
+        category={category}
         selectedRound={selectedRound}
         customRound={customRound}
         onSelectRound={onSelectRound}

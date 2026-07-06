@@ -136,8 +136,11 @@ export class PacingTracker {
     };
   }
 
-  buildMessage(): string {
+  buildMessage(candidateSignal?: string): string {
     const s = this.getState();
+    const signal = candidateSignal
+      ? `\ncandidate_signal: ${candidateSignal}`
+      : "";
     return `[PACING]
 elapsed: ${s.elapsedPct}%
 remaining: ${s.remainingPct}%
@@ -145,7 +148,7 @@ stage: ${s.stage}
 stage_budget: ${s.stageBudget}%
 stage_used: ${s.stageUsed}%
 drift: ${s.drift > 0 ? "+" : ""}${s.drift}%
-steer: ${s.steer}`;
+steer: ${s.steer}${signal}`;
   }
 
   getTotalTimeMs(): number {

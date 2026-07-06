@@ -14,16 +14,28 @@ export const dsaRoutes = new Elysia({ prefix: "/dsa" })
       .post(
         "/start",
         async ({ user, body, set }) => {
-          const { interviewId, questionCount } = body;
+          const { interviewId, questionCount: bodyQc } = body;
+
+          // Determine default question count from user plan
+          let defaultCount = 3;
+          if (bodyQc === undefined || bodyQc === null) {
+            const userRecord = await prisma.user.findUnique({
+              where: { id: user.id },
+              select: { role: true },
+            });
+            const userRole = userRecord?.role ?? "FREE";
+            const isProOrAdmin = userRole === "ADMIN" || userRole === "PRO";
+            defaultCount = isProOrAdmin ? 4 : 2;
+          }
 
           // Validate inputs
           const count =
-            typeof questionCount === "number" &&
-            Number.isInteger(questionCount) &&
-            questionCount >= 1 &&
-            questionCount <= 5
-              ? questionCount
-              : 3;
+            typeof bodyQc === "number" &&
+            Number.isInteger(bodyQc) &&
+            bodyQc >= 1 &&
+            bodyQc <= 5
+              ? bodyQc
+              : defaultCount;
 
           const interview = await prisma.interviewSession.findUnique({
             where: { id: interviewId },
@@ -32,7 +44,7 @@ export const dsaRoutes = new Elysia({ prefix: "/dsa" })
             set.status = 404;
             return { error: "Interview not found" };
           }
-          if (interview.mode !== "DSA") {
+          if (interview.mode !== "LIVE_CODE") {
             set.status = 400;
             return { error: "Interview is not in DSA mode" };
           }
@@ -90,6 +102,7 @@ export const dsaRoutes = new Elysia({ prefix: "/dsa" })
             data: {
               interviewId,
               userId: user.id,
+              ...(body.language ? { language: body.language } : {}),
               problems: {
                 create: enriched.map((q, idx) => ({
                   index: idx,
@@ -113,6 +126,7 @@ export const dsaRoutes = new Elysia({ prefix: "/dsa" })
           body: t.Object({
             interviewId: t.String(),
             questionCount: t.Optional(t.Number()),
+            language: t.Optional(t.String()),
           }),
         },
       )

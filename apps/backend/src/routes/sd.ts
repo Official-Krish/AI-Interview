@@ -18,15 +18,101 @@ interface SdCacheEntry {
   dbQuestionId: string | null;
 }
 
-const questionCache = new Map<string, SdCacheEntry>();
+interface SdCacheMeta {
+  entry: SdCacheEntry;
+  createdAt: number;
+  sessionIds: Set<string>;
+}
 
-export function getSdQuestion(interviewId: string) {
-  return questionCache.get(interviewId) ?? null;
+const questionCache = new Map<string, SdCacheMeta>();
+const CACHE_TTL_MS = 30 * 60_000;
+const CACHE_MAX_ENTRIES = 100;
+// LRU tracking for eviction
+const cacheAccessOrder: string[] = [];
+
+function evictIfNeeded() {
+  if (questionCache.size < CACHE_MAX_ENTRIES) return;
+  const oldest = cacheAccessOrder.shift();
+  if (oldest) questionCache.delete(oldest);
+}
+
+function touchCacheKey(key: string) {
+  const idx = cacheAccessOrder.indexOf(key);
+  if (idx !== -1) cacheAccessOrder.splice(idx, 1);
+  cacheAccessOrder.push(key);
+}
+
+function buildCacheKey(
+  roleCategory: string | null,
+  companyName: string | null,
+  position: string | null,
+): string {
+  return `${roleCategory ?? "__none__"}::${companyName ?? "__none__"}::${position ?? "__none__"}`;
+}
+
+export function getSdQuestion(
+  interviewId: string,
+  roleCategory: string | null,
+  companyName: string | null,
+  position: string | null,
+) {
+  // First check by interviewId (direct match)
+  for (const [, meta] of questionCache) {
+    if (meta.sessionIds.has(interviewId)) {
+      touchCacheKey(buildCacheKey(roleCategory, companyName, position));
+      return meta.entry;
+    }
+  }
+  return null;
+}
+
+export function cacheSdQuestion(
+  interviewId: string,
+  roleCategory: string | null,
+  companyName: string | null,
+  position: string | null,
+  entry: SdCacheEntry,
+) {
+  const key = buildCacheKey(roleCategory, companyName, position);
+  evictIfNeeded();
+
+  const existing = questionCache.get(key);
+  if (existing) {
+    existing.sessionIds.add(interviewId);
+    existing.entry = entry;
+    existing.createdAt = Date.now();
+    touchCacheKey(key);
+    return;
+  }
+
+  questionCache.set(key, {
+    entry,
+    createdAt: Date.now(),
+    sessionIds: new Set([interviewId]),
+  });
+  touchCacheKey(key);
 }
 
 export function clearSdQuestion(interviewId: string) {
-  questionCache.delete(interviewId);
+  for (const [, meta] of questionCache) {
+    meta.sessionIds.delete(interviewId);
+    if (meta.sessionIds.size === 0) {
+      // Cleanup happens via TTL check on next access
+    }
+  }
 }
+
+// Periodic cache cleanup — removes expired entries
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, meta] of questionCache) {
+    if (now - meta.createdAt > CACHE_TTL_MS) {
+      questionCache.delete(key);
+      const idx = cacheAccessOrder.indexOf(key);
+      if (idx !== -1) cacheAccessOrder.splice(idx, 1);
+    }
+  }
+}, 60_000);
 
 async function recordSeen(
   userId: string,
@@ -44,6 +130,7 @@ async function pickFromDb(
   userId: string,
   companyName: string | null,
   position: string | null,
+  roleCategory: string | null,
 ): Promise<(SdCacheEntry & { dbQuestionId: string }) | null> {
   const seenIds = (
     await prisma.sdQuestionSeenByUser.findMany({
@@ -57,6 +144,9 @@ async function pickFromDb(
   if (companyName) {
     where.companyName = companyName;
     if (position) where.position = position;
+  }
+  if (roleCategory) {
+    where.roleCategory = roleCategory;
   }
 
   if (seenIds.length > 0) {
@@ -123,13 +213,23 @@ export const sdRoutes = new Elysia({ prefix: "/sd" })
           set.status = 404;
           return { error: "Interview not found" };
         }
-        if (interview.mode !== "SYSTEM_DESIGN") {
+        if (interview.mode !== "LIVE_CANVAS") {
           set.status = 400;
           return { error: "Interview is not in SYSTEM_DESIGN mode" };
         }
 
+        const companyName = interview.companyName ?? null;
+        const position = interview.position ?? null;
+        const roleCategory =
+          (interview as { roleCategory?: string | null }).roleCategory ?? null;
+
         // 1. In-memory cache hit
-        const existing = questionCache.get(interviewId);
+        const existing = getSdQuestion(
+          interviewId,
+          roleCategory,
+          companyName,
+          position,
+        );
         if (existing) {
           return {
             title: existing.title,
@@ -139,13 +239,21 @@ export const sdRoutes = new Elysia({ prefix: "/sd" })
           };
         }
 
-        const companyName = interview.companyName ?? null;
-        const position = interview.position ?? null;
-
         // 2. Try DB — pick a question the user hasn't seen
-        const fromDb = await pickFromDb(user.id, companyName, position);
+        const fromDb = await pickFromDb(
+          user.id,
+          companyName,
+          position,
+          roleCategory,
+        );
         if (fromDb) {
-          questionCache.set(interviewId, fromDb);
+          cacheSdQuestion(
+            interviewId,
+            roleCategory,
+            companyName,
+            position,
+            fromDb,
+          );
           await recordSeen(user.id, fromDb.dbQuestionId, interviewId);
           return {
             title: fromDb.title,
@@ -165,7 +273,10 @@ export const sdRoutes = new Elysia({ prefix: "/sd" })
           (interview as { interviewStyle?: string }).interviewStyle ||
           "PROFESSIONAL";
 
-        const generationPrompt = `Generate TWO distinct system design interview questions for ${company} for the role of ${role}. The second is a backup if the candidate has seen the first one.
+        const categoryContext = roleCategory
+          ? `\nCategory: ${roleCategory} — tailor the question to this domain.`
+          : "";
+        const generationPrompt = `Generate TWO distinct system design interview questions for ${company} for the role of ${role}. The second is a backup if the candidate has seen the first one.${categoryContext}
 
 Depth: ${depth} — ${
           depth === "STANDARD"
@@ -459,6 +570,7 @@ This is a foundational overview. Feel free to dive deeper into any of these area
           data: {
             companyName,
             position,
+            roleCategory,
             interviewDepth: depth as never,
             interviewStyle: style as never,
             title: parsed.primary.title,
@@ -481,7 +593,13 @@ This is a foundational overview. Feel free to dive deeper into any of these area
           saved.id,
         );
 
-        questionCache.set(interviewId, entry);
+        cacheSdQuestion(
+          interviewId,
+          roleCategory,
+          companyName,
+          position,
+          entry,
+        );
         await recordSeen(user.id, saved.id, interviewId);
 
         return {

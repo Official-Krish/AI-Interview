@@ -68,6 +68,14 @@ export function buildRoundDirective(round: string | null): string {
       "This is a founder and culture fit round. Evaluate generalist mindset, resourcefulness, decision-making under ambiguity, and high-velocity execution.",
     "Case Study & Analysis":
       "This is a case study round. Present a business problem and evaluate structured problem-solving, analytical frameworks, and communication of recommendations.",
+    "Product Sense":
+      "This is a product sense round. Focus on user empathy, product thinking, goal definition, and solution exploration. Evaluate how the candidate identifies user needs, defines success metrics, prioritizes features, and makes product tradeoffs. Use the canvas for user flows and wireframes.",
+    "Design Critique":
+      "This is a design critique round. Focus on UX analysis, design principles, and constructive feedback. Evaluate first impressions, what works, what could improve, and how the candidate articulates design rationale. Use the canvas for annotated mockups and before/after flows.",
+    "Strategy & Vision":
+      "This is a strategy and vision round. Focus on strategic thinking, org design, roadmap planning, and execution. Evaluate how the candidate assesses current state, defines a vision, builds a roadmap, and thinks about org structure and risk. Use the canvas for org charts and timelines.",
+    "Quantitative Analysis":
+      "This is a quantitative analysis round. Present business or analytical problems involving calculations, formulas, and data reasoning. Focus on structured problem-solving, mathematical accuracy, assumption quality, and business logic. Evaluate how the candidate frameworks the problem, performs calculations, verifies results, and draws conclusions.",
   };
 
   const directive = directives[round];

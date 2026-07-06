@@ -30,6 +30,7 @@ const COMMON_ROLES = [
 
 interface RolePickerProps {
   companyId: string | null;
+  category?: string | null;
   selectedRoleTitle: string | null;
   customRole: string;
   onSelectRole: (title: string | null) => void;
@@ -69,6 +70,7 @@ const hoverProps = {
 
 export function RolePicker({
   companyId,
+  category,
   selectedRoleTitle,
   customRole,
   onSelectRole,
@@ -80,7 +82,9 @@ export function RolePicker({
     return COMPANIES.find((c) => c.id === companyId) ?? null;
   }, [companyId]);
 
-  const roles = company?.roles ?? [];
+  const roles = category
+    ? (company?.roles.filter((r) => r.category === category) ?? [])
+    : (company?.roles ?? []);
   const isCustom = companyId === "__custom__";
   const showCustomInput =
     selectedRoleTitle === null && (isCustom || roles.length > 0);
@@ -403,15 +407,6 @@ export function RolePicker({
                   value={customRole}
                   onChange={(e) => {
                     const val = e.target.value;
-                    if (
-                      /system\s*design/i.test(val) &&
-                      !/system\s*design/i.test(customRole)
-                    ) {
-                      toast(
-                        "Custom System Design interviews are coming soon, but you can still practice like normal interviews.",
-                        { icon: "🚧" },
-                      );
-                    }
                     onCustomRoleChange(val);
                   }}
                   placeholder="e.g. Staff Engineer, TPM, Design Lead..."

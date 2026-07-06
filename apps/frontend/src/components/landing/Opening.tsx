@@ -42,16 +42,6 @@ export function Opening() {
           <div className="opening-badge-connector" aria-hidden />
         </motion.div>
 
-        {/* Eyebrow */}
-        <motion.p
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 1, delay: 0.15, ease }}
-          className="opening-eyebrow"
-        >
-          ADAPTIVE AI INTERVIEWER • INTERVIEW IDENTITY
-        </motion.p>
-
         {/* Headline */}
         <motion.h1
           initial={{ opacity: 0, y: 30 }}
@@ -76,7 +66,7 @@ export function Opening() {
           <p className="opening-desc-lead">
             Practice realistic AI interviews. Every session updates a living
             profile of how you think, communicate, and make decisions under
-            pressure
+            pressure.
           </p>
         </motion.div>
 
@@ -112,8 +102,28 @@ export function Opening() {
           transition={{ duration: 1, delay: 0.8, ease }}
           className="opening-metrics"
         >
-          <div className="opening-metric">
-            <span className="opening-metric-num">01</span>
+          <div className="opening-metric" tabIndex={0}>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="opening-metric-icon"
+              aria-hidden
+            >
+              <circle cx="12" cy="5" r="2" />
+              <circle cx="5" cy="12" r="2" />
+              <circle cx="19" cy="12" r="2" />
+              <circle cx="12" cy="19" r="2" />
+              <line x1="12" y1="7" x2="12" y2="17" />
+              <line x1="12" y1="5" x2="5" y2="12" />
+              <line x1="12" y1="5" x2="19" y2="12" />
+              <line x1="5" y1="12" x2="12" y2="19" />
+              <line x1="19" y1="12" x2="12" y2="19" />
+            </svg>
             <div className="opening-metric-body">
               <span className="opening-metric-title">How you think</span>
               <span className="opening-metric-desc">
@@ -121,8 +131,24 @@ export function Opening() {
               </span>
             </div>
           </div>
-          <div className="opening-metric">
-            <span className="opening-metric-num">02</span>
+          <div className="opening-metric" tabIndex={0}>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="opening-metric-icon"
+              aria-hidden
+            >
+              <line x1="4" y1="9" x2="4" y2="15" />
+              <line x1="8" y1="6" x2="8" y2="18" />
+              <line x1="12" y1="3" x2="12" y2="21" />
+              <line x1="16" y1="8" x2="16" y2="16" />
+              <line x1="20" y1="10" x2="20" y2="14" />
+            </svg>
             <div className="opening-metric-body">
               <span className="opening-metric-title">How you communicate</span>
               <span className="opening-metric-desc">
@@ -130,8 +156,20 @@ export function Opening() {
               </span>
             </div>
           </div>
-          <div className="opening-metric">
-            <span className="opening-metric-num">03</span>
+          <div className="opening-metric" tabIndex={0}>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="opening-metric-icon"
+              aria-hidden
+            >
+              <path d="M12 22V13m0 0a5 5 0 0 1 5-5h3m-8 5a5 5 0 0 0-5-5H3m17 0a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM3 8a2 2 0 1 0 0-4 2 2 0 0 0 0 4z" />
+            </svg>
             <div className="opening-metric-body">
               <span className="opening-metric-title">How you decide</span>
               <span className="opening-metric-desc">

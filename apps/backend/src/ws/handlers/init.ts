@@ -1,15 +1,22 @@
 import { prisma } from "../../lib/prisma";
 import { COMPANIES } from "@evalio/shared";
-import { buildInterviewPrompt, type PromptInput } from "../../prompt";
-import { buildDsaSystemPrompt } from "../../prompt/dsa";
-import { buildSystemDesignPrompt } from "../../prompt";
 import { getSdQuestion } from "../../routes/sd";
+import { getCanvasQuestion } from "../../routes/canvas";
+import { getDiscussionQuestion } from "../../routes/discussion";
 import { verifyWsToken, startInterview } from "../orchestrator";
 import { tryActivate, enqueue as queueEnqueue } from "../../lib/queue";
 import type { InterviewConnection } from "../session";
 import { startHeartbeat } from "../helpers/heartbeat";
 import { PacingTracker } from "../helpers/pacing";
-import { VOICE_BUDGETS, DSA_BUDGETS, SD_BUDGETS } from "../../prompt";
+import {
+  resolveRoute,
+  buildPromptFromRoute,
+  type PromptInput,
+  type SystemDesignPromptInput,
+  VOICE_BUDGETS,
+  DSA_BUDGETS,
+  SD_BUDGETS,
+} from "../../prompt";
 
 export async function handleInit(
   conn: InterviewConnection,
@@ -73,9 +80,6 @@ export async function handleInit(
 
   const github = interview.user.githubProfile;
   const userRole = interview.user.role ?? "FREE";
-  const timeLimitMs =
-    userRole === "ADMIN" || userRole === "PRO" ? 1_800_000 : 900_000;
-  const durationMinutes = timeLimitMs / 60_000;
   const companyConfig = interview.companyId
     ? COMPANIES.find((c) => c.id === interview.companyId)
     : null;
@@ -84,6 +88,7 @@ export async function handleInit(
 
   const selectedRole =
     companyConfig?.roles.find((r) => r.title === interview.roleTitle) ?? null;
+  const seniorityLabel = selectedRole?.seniorityLabel ?? null;
 
   const pastInterviews = await prisma.interviewSession.findMany({
     where: {
@@ -121,27 +126,75 @@ export async function handleInit(
           : "stable";
 
   const mode = (interview as { mode?: string }).mode;
-  const isDsa = mode === "DSA";
-  const isSystemDesign = mode === "SYSTEM_DESIGN";
-  conn.isDsaMode = isDsa;
+  const isDsaMode = mode === "LIVE_CODE";
+  const isSystemDesign = mode === "LIVE_CANVAS";
+  const isDiscussionMode = mode === "DISCUSSION";
+  conn.isDsaMode = isDsaMode;
   conn.isSystemDesign = isSystemDesign;
+
+  const route = resolveRoute(
+    (interview as { interviewRound?: string | null }).interviewRound,
+    mode,
+  );
+  console.log("[init] resolved route:", route);
+  conn.isSqlMode = route.builder === "dsa_sql";
+  conn.isQuantMode = route.builder === "quant_standard";
+  conn.isHftMode = route.builder === "hft_coding";
+
+  // Set silence tier based on round variant
+  const roundLabel = (interview as { interviewRound?: string | null })
+    .interviewRound;
+  if (roundLabel) {
+    const extendedRounds = [
+      "Case Study",
+      "Product Sense",
+      "Client Presentation",
+      "Quantitative Analysis",
+      "Incident Response",
+      "CI/CD & Automation",
+      "Scenario",
+    ];
+    if (extendedRounds.includes(roundLabel)) {
+      conn.silenceTier = "extended";
+    } else if (roundLabel === "Design Critique") {
+      conn.silenceTier = "design_critique";
+    }
+  }
+
+  const roleCategory = ((interview as { roleCategory?: string | null })
+    .roleCategory ?? null) as string | null;
+  const isEngineeringDsaOrSd =
+    roleCategory === "engineering" && (isDsaMode || isSystemDesign);
+
+  // Engineering privilege: DSA and SD rounds always get 30 min
+  const effectiveTimeLimitMs = isEngineeringDsaOrSd
+    ? 1_800_000
+    : userRole === "ADMIN" || userRole === "PRO"
+      ? 1_800_000
+      : 900_000;
+  const durationMinutes = effectiveTimeLimitMs / 60_000;
+
   console.log(
     "[init] mode:",
     mode,
-    "isDsa:",
-    isDsa,
+    "isDsaMode:",
+    isDsaMode,
     "isSystemDesign:",
     isSystemDesign,
+    "roleCategory:",
+    roleCategory,
+    "durationMinutes:",
+    durationMinutes,
   );
 
   let pacingBudgets = VOICE_BUDGETS;
-  if (isDsa) pacingBudgets = DSA_BUDGETS;
-  else if (isSystemDesign) pacingBudgets = SD_BUDGETS;
-  conn.pacing = new PacingTracker(timeLimitMs, pacingBudgets);
+  if (isDsaMode) pacingBudgets = DSA_BUDGETS;
+  else if (isSystemDesign || isDiscussionMode) pacingBudgets = SD_BUDGETS;
+  conn.pacing = new PacingTracker(effectiveTimeLimitMs, pacingBudgets);
 
   let systemPrompt: string;
 
-  if (isDsa) {
+  if (route.mode === "LIVE_CODE") {
     const dsaSession = await prisma.dsaSession.findUnique({
       where: { interviewId: interview.id },
       include: { problems: { orderBy: { index: "asc" } } },
@@ -158,7 +211,7 @@ export async function handleInit(
     const pastDsaInterviews = await prisma.interviewSession.findMany({
       where: {
         userId: interview.userId,
-        mode: "DSA",
+        mode: "LIVE_CODE",
         status: "COMPLETED",
         id: { not: interview.id },
         dsaSession: { isNot: null },
@@ -183,7 +236,7 @@ export async function handleInit(
     const dsaScored = await prisma.interviewSession.findMany({
       where: {
         userId: interview.userId,
-        mode: "DSA",
+        mode: "LIVE_CODE",
         status: "COMPLETED",
         overallScore: { not: null },
       },
@@ -201,9 +254,9 @@ export async function handleInit(
             ? "declining"
             : "stable";
 
-    systemPrompt = buildDsaSystemPrompt(
-      problems,
-      {
+    systemPrompt = buildPromptFromRoute(route, {
+      dsaQuestions: problems,
+      dsaContext: {
         companyName: interview.companyName,
         roleTitle: (interview as { roleTitle?: string | null }).roleTitle,
         interviewRound: (interview as { interviewRound?: string | null })
@@ -213,23 +266,77 @@ export async function handleInit(
           .interviewDepth,
         interviewStyle: (interview as { interviewStyle?: string | null })
           .interviewStyle,
+        roleCategory,
+        seniorityLabel,
+        roleTopics: selectedRole?.topics ?? null,
+        roleEvaluationCriteria: selectedRole?.evaluationCriteria ?? null,
+        roleMustProbe: selectedRole?.mustProbe ?? null,
       },
-      {
+      dsaHistory: {
         pastSessions: dsaHistoryEntries,
         scoreTrendLast5: dsaScoreTrend,
         mostImproved: skillProfile?.mostImprovedSkill ?? null,
         weakest: skillProfile?.weakestSkill ?? null,
       },
-      durationMinutes,
-    );
+      dsaDurationMinutes: durationMinutes,
+    });
     console.log("[init] built DSA prompt:", systemPrompt.slice(0, 200));
-  } else if (isSystemDesign) {
-    console.log("[init] building System Design prompt");
-    const sdQuestion = getSdQuestion(interview.id);
+  } else if (route.mode === "LIVE_CANVAS") {
+    console.log("[init] building System Design prompt, round:", roundLabel);
+
+    const canvasRoundLabels = [
+      "Product Sense",
+      "Design Critique",
+      "Strategy & Vision",
+    ];
+    const isCanvasRound = roundLabel
+      ? canvasRoundLabels.includes(roundLabel)
+      : false;
+    conn.isCanvasMode = isCanvasRound;
+
+    const sdQuestion = isCanvasRound
+      ? getCanvasQuestion(
+          interview.id,
+          roundLabel!,
+          conn.interviewDepth,
+          interview.interviewStyle ?? "PROFESSIONAL",
+          roleCategory,
+          interview.companyName ?? null,
+          interview.position ?? null,
+        )
+      : getSdQuestion(
+          interview.id,
+          roleCategory,
+          interview.companyName ?? null,
+          interview.position ?? null,
+        );
     console.log("[init] sdQuestion found:", !!sdQuestion);
-    systemPrompt = buildSystemDesignPrompt({
+    const sdQuestions =
+      isCanvasRound && sdQuestion && (sdQuestion as any).questionCount > 1
+        ? [
+            {
+              title: sdQuestion.title,
+              description: sdQuestion.description,
+              fullBreakdown: sdQuestion.fullBreakdown,
+            },
+            {
+              title: (sdQuestion as any).backupTitle,
+              description: (sdQuestion as any).backupDescription,
+              fullBreakdown: (sdQuestion as any).backupFullBreakdown,
+            },
+          ].filter((q) => q.title)
+        : undefined;
+    const sdInput: SystemDesignPromptInput & {
+      sdQuestion?: any;
+      sdQuestions?: any[];
+      questionCount?: number;
+    } = {
       position: interview.position,
       sdQuestion: sdQuestion ?? undefined,
+      sdQuestions,
+      questionCount: isCanvasRound
+        ? ((sdQuestion as any)?.questionCount ?? 1)
+        : 1,
       candidateName: interview.user.name,
       companyName: interview.companyName ?? null,
       companyCulture: companyConfig?.culture ?? null,
@@ -272,10 +379,98 @@ export async function handleInit(
       overallWeakest: skillProfile?.weakestSkill ?? null,
       overallPatterns: (skillProfile?.commonPatterns as string[]) ?? [],
       scoreTrendLast5,
-    });
+      roleCategory,
+      seniorityLabel,
+    };
+    systemPrompt = buildPromptFromRoute(route, { sdInput });
     console.log("[init] built SD prompt:", systemPrompt.slice(0, 200));
+  } else if (route.mode === "DISCUSSION") {
+    console.log("[init] building Discussion prompt, round:", roundLabel);
+    conn.isCanvasMode = true;
+
+    const sdQuestion = getDiscussionQuestion(
+      interview.id,
+      roundLabel ?? "Case Study",
+      conn.interviewDepth,
+      interview.interviewStyle ?? "PROFESSIONAL",
+      roleCategory,
+      interview.companyName ?? null,
+      interview.position ?? null,
+    );
+    console.log("[init] discussion question found:", !!sdQuestion);
+    const sdQuestions =
+      sdQuestion && (sdQuestion as any).questionCount > 1
+        ? [
+            {
+              title: sdQuestion.title,
+              description: sdQuestion.description,
+              fullBreakdown: sdQuestion.fullBreakdown,
+            },
+            {
+              title: (sdQuestion as any).backupTitle,
+              description: (sdQuestion as any).backupDescription,
+              fullBreakdown: (sdQuestion as any).backupFullBreakdown,
+            },
+          ].filter((q) => q.title)
+        : undefined;
+    const sdInput: SystemDesignPromptInput & {
+      sdQuestion?: any;
+      sdQuestions?: any[];
+      questionCount?: number;
+    } = {
+      position: interview.position,
+      sdQuestion: sdQuestion ?? undefined,
+      sdQuestions,
+      questionCount: (sdQuestion as any)?.questionCount ?? 1,
+      candidateName: interview.user.name,
+      companyName: interview.companyName ?? null,
+      companyCulture: companyConfig?.culture ?? null,
+      companyInterviewerBehavior: companyConfig?.interviewerBehavior ?? null,
+      companyEvaluationBiases: companyConfig?.evaluationBiases ?? null,
+      roleTopics: selectedRole?.topics ?? null,
+      roleEvaluationCriteria: selectedRole?.evaluationCriteria ?? null,
+      roleMustProbe: selectedRole?.mustProbe ?? null,
+      interviewRound:
+        (interview as { interviewRound?: string | null }).interviewRound ??
+        null,
+      resumeText: interview.resume?.extractedText ?? null,
+      jobDescription:
+        (interview as { jobDescription?: string | null }).jobDescription ??
+        null,
+      githubUsername: github?.username ?? null,
+      githubSummary: github?.summary ?? null,
+      githubLanguages: (github?.languages as string[]) ?? [],
+      githubProjects:
+        (github?.projects as {
+          name: string;
+          description: string | null;
+          stars: number;
+          language: string | null;
+        }[]) ?? [],
+      interviewStyle: (interview.interviewStyle ??
+        "PROFESSIONAL") as PromptInput["interviewStyle"],
+      interviewDepth: conn.interviewDepth as PromptInput["interviewDepth"],
+      durationMinutes,
+      candidateHistory: pastInterviews.map((iv) => ({
+        date: iv.createdAt.toISOString(),
+        role: iv.roleTitle ?? iv.position,
+        mode: (iv as { mode?: string }).mode,
+        overallScore: iv.overallScore,
+        strengths: (iv.summary?.strengths as string[]) ?? [],
+        weaknesses: (iv.summary?.weaknesses as string[]) ?? [],
+        summary: iv.summary?.summary ?? null,
+      })),
+      overallMostImproved: skillProfile?.mostImprovedSkill ?? null,
+      overallWeakest: skillProfile?.weakestSkill ?? null,
+      overallPatterns: (skillProfile?.commonPatterns as string[]) ?? [],
+      scoreTrendLast5,
+      roleCategory,
+      seniorityLabel,
+    };
+    systemPrompt = buildPromptFromRoute(route, { sdInput });
+    console.log("[init] built Discussion prompt:", systemPrompt.slice(0, 200));
   } else {
-    const promptInput = {
+    const promptInput: PromptInput = {
       position: interview.position,
       candidateName: interview.user.name,
       resumeText: interview.resume?.extractedText ?? null,
@@ -319,13 +514,47 @@ export async function handleInit(
       overallWeakest: skillProfile?.weakestSkill ?? null,
       overallPatterns: (skillProfile?.commonPatterns as string[]) ?? [],
       scoreTrendLast5,
+      roleCategory,
+      seniorityLabel,
     };
-    systemPrompt = buildInterviewPrompt(promptInput);
+    systemPrompt = buildPromptFromRoute(route, { voiceInput: promptInput });
   }
 
   const startFn = async () => {
-    await startInterview(conn, systemPrompt, timeLimitMs);
+    await startInterview(conn, systemPrompt, effectiveTimeLimitMs);
   };
+
+  // Duplicate connection detection: if another WS already holds the slot
+  // for this interview, close the old one (triggers cleanup & finalization),
+  // then reject the new one with a clear error.
+  const existingWs = conn.wsMap.get(conn.interviewId);
+  if (existingWs && existingWs.readyState === 1 /* OPEN */) {
+    console.log(
+      `[init] duplicate WS for ${conn.interviewId} — keeping existing session, rejecting new`,
+    );
+    await conn.safeSend({
+      error:
+        "Interview already in progress in another tab. Please close the other tab and return to this one.",
+    });
+    conn.interviewId = null;
+    conn.client.close();
+    return;
+  }
+
+  // Race guard: if the interview is being cleaned up (old WS disconnected,
+  // cleanup hasn't finished DB writes), reject the new connection to prevent
+  // a fresh Gemini session from starting during finalization.
+  if (conn.cleaningSet.has(conn.interviewId)) {
+    console.log(
+      `[init] rejecting WS for ${conn.interviewId} — cleanup in progress`,
+    );
+    await conn.safeSend({
+      error: "Interview is ending, please wait.",
+    });
+    conn.interviewId = null;
+    conn.client.close();
+    return;
+  }
 
   const slotOpen = await tryActivate(conn.interviewId);
   console.log(
@@ -339,7 +568,7 @@ export async function handleInit(
   if (slotOpen) {
     conn.wsMap.set(conn.interviewId, conn.client);
     conn.startCallbacks.set(conn.interviewId, startFn);
-    await startInterview(conn, systemPrompt, timeLimitMs);
+    await startInterview(conn, systemPrompt, effectiveTimeLimitMs);
     startHeartbeat(conn);
   } else {
     conn.isQueued = true;

@@ -14,6 +14,8 @@ import { ResumeAlignment } from "../components/Result/ResumeAlignment";
 import { StudyRecommendations } from "../components/Result/StudyRecommendations";
 import { FeedbackCTA } from "../components/Result/FeedbackCTA";
 import { TurnRow } from "../components/Result/TurnRow";
+import { MomentumGraph } from "../components/Result/MomentumGraph";
+import { DiscrepancyPanel } from "../components/Result/DiscrepancyPanel";
 import { DsaResultsSection } from "../components/Result/DsaResultsSection";
 import type { DsaSessionData } from "../components/Result/types";
 import { SdDesignSection } from "../components/Result/SdDesignSection";
@@ -211,10 +213,27 @@ export function ResultsPage() {
   const recommendedTopics: string[] =
     (interview.summary?.recommendedTopics as string[] | undefined) ?? [];
 
+  const discrepancies: Array<{
+    turnNumber: number;
+    liveScore: number;
+    calibratedScore: number;
+    direction: "up" | "down" | "unchanged";
+    reason: string;
+  }> =
+    ((interview as unknown as Record<string, unknown>).discrepancies as
+      | Array<{
+          turnNumber: number;
+          liveScore: number;
+          calibratedScore: number;
+          direction: "up" | "down" | "unchanged";
+          reason: string;
+        }>
+      | undefined) ?? [];
+
   const interviewMode = (interview as unknown as Record<string, unknown>)
     .mode as string | undefined;
-  const isSd = interviewMode === "SYSTEM_DESIGN";
-  const isDsa = interviewMode === "DSA";
+  const isLiveCanvas = interviewMode === "LIVE_CANVAS";
+  const isLiveCode = interviewMode === "LIVE_CODE";
   const finalDiagram = (interview as unknown as Record<string, unknown>)
     .finalDiagram as CanvasSnapshot | null | undefined;
 
@@ -226,9 +245,13 @@ export function ResultsPage() {
       <ScoreBlock
         showScore={interview.overallScore != null}
         overall={overall}
+        overallConfidence={interview.overallConfidence}
         comm={comm}
+        commConfidence={interview.communicationConfidence}
         tech={tech}
+        techConfidence={interview.technicalConfidence}
         prob={prob}
+        probConfidence={interview.problemSolvingConfidence}
         verdict={verdict}
         retryingEval={retryingEval}
         evalStuck={evalStuck}
@@ -274,6 +297,21 @@ export function ResultsPage() {
         </div>
       )}
 
+      {turns.filter((t) => t.score != null).length >= 2 && (
+        <MomentumGraph
+          turns={turns.map((t) => ({
+            orderNumber: t.orderNumber,
+            score: t.score ?? 0,
+          }))}
+          momentum={interview.momentum}
+          momentumSlope={interview.momentumSlope}
+        />
+      )}
+
+      {discrepancies.length > 0 && (
+        <DiscrepancyPanel discrepancies={discrepancies} />
+      )}
+
       {interview.summary && (
         <div className="mb-10">
           <p
@@ -305,7 +343,7 @@ export function ResultsPage() {
 
       <StudyRecommendations topics={recommendedTopics} />
 
-      {isDsa &&
+      {isLiveCode &&
         !!(interview as unknown as Record<string, unknown>).dsaSession && (
           <DsaResultsSection
             session={
@@ -315,7 +353,7 @@ export function ResultsPage() {
           />
         )}
 
-      {isSd && <SdDesignSection finalDiagram={finalDiagram ?? null} />}
+      {isLiveCanvas && <SdDesignSection finalDiagram={finalDiagram ?? null} />}
 
       {turns.length > 0 && (
         <div className="pb-12">
@@ -324,7 +362,9 @@ export function ResultsPage() {
               className="text-[11px] tracking-[0.1em] uppercase m-0 font-semibold"
               style={{ color: "var(--landing-fg-muted)" }}
             >
-              {isSd || isDsa ? "AI QUESTIONS" : "QUESTIONS & ANSWERS"}
+              {isLiveCanvas || isLiveCode
+                ? "AI QUESTIONS"
+                : "QUESTIONS & ANSWERS"}
             </p>
             <span
               className="text-[11px] px-[10px] py-[2px] rounded-full border"
@@ -343,7 +383,7 @@ export function ResultsPage() {
                 key={turn.id}
                 turn={turn}
                 index={i}
-                showQuestionOnly={isSd || isDsa}
+                showQuestionOnly={isLiveCanvas || isLiveCode}
               />
             ))}
           </div>

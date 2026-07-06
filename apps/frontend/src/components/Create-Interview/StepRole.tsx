@@ -35,6 +35,7 @@ const btnBack: React.CSSProperties = {
 interface StepRoleProps {
   companyId: string | null;
   companyName: string | null;
+  category?: string | null;
   selectedRoleTitle: string | null;
   customRole: string;
   effectivePosition: string;
@@ -47,6 +48,7 @@ interface StepRoleProps {
 export function StepRole({
   companyId,
   companyName,
+  category,
   selectedRoleTitle,
   customRole,
   effectivePosition,
@@ -76,7 +78,7 @@ export function StepRole({
             margin: "0 0 6px",
           }}
         >
-          Step 2 of 5
+          Step 3 of 6
         </motion.p>
         <motion.h1
           initial={{ opacity: 0, y: 8 }}
@@ -124,6 +126,7 @@ export function StepRole({
       </div>
       <RolePicker
         companyId={companyId}
+        category={category}
         selectedRoleTitle={selectedRoleTitle}
         customRole={customRole}
         onSelectRole={onSelectRole}

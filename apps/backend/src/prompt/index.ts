@@ -11,6 +11,7 @@ export {
   buildDirectingDirective,
   buildEndSessionInstruction,
   buildInterruptionRules,
+  buildCriticalConstraints,
   buildCompanyContext,
   buildRoleContext,
   buildRoundDirective,
@@ -25,16 +26,31 @@ export {
 } from "./shared";
 
 // Generic (VOICE)
-export { buildInterviewPrompt } from "./generic";
+export { buildInterviewPrompt, buildScenarioPrompt } from "./generic";
+
+// Quantitative Analysis
+export { buildQuantPrompt } from "./quant";
 
 // System Design
-export { buildSystemDesignPrompt, buildWhiteboardDirective } from "./sd";
+export {
+  buildSystemDesignPrompt,
+  buildSdInfraPrompt,
+  buildSdDataArchPrompt,
+  buildSdMlPrompt,
+  buildProductCanvasPrompt,
+  buildDesignCritiquePrompt,
+  buildStrategyVisionPrompt,
+  buildWhiteboardDirective,
+} from "./sd";
 
 // DSA
 export {
   buildDsaSystemPrompt,
-  buildDsaEvaluationPrompt,
+  buildDsaSqlPrompt,
   DSA_PHASES,
   DSA_EVALUATION_SCHEMA,
 } from "./dsa";
 export type { DsaPhase, DsaHistoryEntry } from "./dsa";
+
+// Router
+export { resolveRoute, buildPromptFromRoute } from "./router";

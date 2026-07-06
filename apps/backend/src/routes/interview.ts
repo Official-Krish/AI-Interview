@@ -91,13 +91,18 @@ export const interviewRoutes = new Elysia({ prefix: "/interview" }).guard(
                 userId: user.id,
                 status: "CREATED",
                 mode:
-                  (body.mode as "VOICE" | "DSA" | "SYSTEM_DESIGN") ?? "VOICE",
+                  (body.mode as
+                    | "VOICE"
+                    | "LIVE_CODE"
+                    | "LIVE_CANVAS"
+                    | "DISCUSSION") ?? "VOICE",
                 position: body.position,
                 jobDescription: body.jobDescription,
                 resumeId: resume.id,
                 ...(body.companyId && { companyId: body.companyId }),
                 ...(body.companyName && { companyName: body.companyName }),
                 ...(body.roleTitle && { roleTitle: body.roleTitle }),
+                ...(body.roleCategory && { roleCategory: body.roleCategory }),
                 ...(body.interviewRound && {
                   interviewRound: body.interviewRound,
                 }),
@@ -121,6 +126,7 @@ export const interviewRoutes = new Elysia({ prefix: "/interview" }).guard(
               companyId: t.Optional(t.String()),
               companyName: t.Optional(t.String()),
               roleTitle: t.Optional(t.String()),
+              roleCategory: t.Optional(t.String()),
               interviewRound: t.Optional(t.String()),
               interviewStyle: t.Optional(
                 t.Enum({
@@ -141,8 +147,9 @@ export const interviewRoutes = new Elysia({ prefix: "/interview" }).guard(
               mode: t.Optional(
                 t.Enum({
                   VOICE: "VOICE",
-                  DSA: "DSA",
-                  SYSTEM_DESIGN: "SYSTEM_DESIGN",
+                  DSA: "LIVE_CODE",
+                  SYSTEM_DESIGN: "LIVE_CANVAS",
+                  DISCUSSION: "DISCUSSION",
                 }),
               ),
               language: t.Optional(t.String()),

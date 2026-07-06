@@ -79,7 +79,7 @@ export function SessionCard({
             }}
           >
             {resumeLabel}
-            {mode === "DSA" ? " \u00B7 Coding Round" : ""}
+            {mode === "LIVE_CODE" ? " \u00B7 Coding Round" : ""}
           </span>
         </div>
       </div>

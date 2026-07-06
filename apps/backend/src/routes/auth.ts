@@ -268,7 +268,7 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
           });
           if (!user) {
             set.status = 401;
-            return { error: "Invalid email or password" };
+            return { error: "User does not exist. Create an account first." };
           }
 
           const valid = await Bun.password.verify(body.password, user.password);

@@ -120,7 +120,7 @@ export function StepResume({
             margin: "0 0 6px",
           }}
         >
-          Step 5 of 5
+          Step 6 of 6
         </motion.p>
         <motion.h1
           style={{
@@ -162,7 +162,7 @@ export function StepResume({
         onUseConnectedGithub={onUseConnectedGithub}
       />
 
-      {interviewMode !== "DSA" && (
+      {interviewMode !== "LIVE_CODE" && (
         <div style={{ marginTop: "24px", marginBottom: "24px" }}>
           <p
             style={{

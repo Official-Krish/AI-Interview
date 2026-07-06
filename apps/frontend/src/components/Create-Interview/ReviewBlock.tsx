@@ -104,7 +104,7 @@ export function ReviewBlock({
               }}
             >
               {item.value}
-              {item.label === "Round" && interviewMode === "DSA" && (
+              {item.label === "Round" && interviewMode === "LIVE_CODE" && (
                 <span
                   style={{
                     fontSize: "8px",

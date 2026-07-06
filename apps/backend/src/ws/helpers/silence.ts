@@ -3,11 +3,24 @@ import type { InterviewConnection } from "../session";
 const SILENCE_CHECK_INTERVAL = 10_000;
 const MAX_SILENCE_PROMPTS = 3;
 const SILENCE_COOLDOWN = 60_000;
-const VOICE_SILENCE_THRESHOLD = 30_000;
-const DSA_SILENCE_THRESHOLD = 120_000;
-const SD_SILENCE_THRESHOLD = 180_000;
-const DSA_CODE_ACTIVITY_WINDOW = 30_000;
-const SD_CANVAS_ACTIVITY_WINDOW = 15_000;
+let VOICE_SILENCE_THRESHOLD = 30_000;
+let VOICE_EXTENDED_THRESHOLD = 45_000;
+let VOICE_DESIGN_CRITIQUE_THRESHOLD = 40_000;
+let DSA_SILENCE_THRESHOLD = 120_000;
+let SD_SILENCE_THRESHOLD = 180_000;
+let DSA_CODE_ACTIVITY_WINDOW = 30_000;
+let SD_CANVAS_ACTIVITY_WINDOW = 15_000;
+
+function applyPaceMultiplier(conn: InterviewConnection) {
+  const m = conn.runtime.pace === "fast" ? 0.5 : 1.0;
+  VOICE_SILENCE_THRESHOLD = Math.round(30_000 * m);
+  VOICE_EXTENDED_THRESHOLD = Math.round(45_000 * m);
+  VOICE_DESIGN_CRITIQUE_THRESHOLD = Math.round(40_000 * m);
+  DSA_SILENCE_THRESHOLD = Math.round(120_000 * m);
+  SD_SILENCE_THRESHOLD = Math.round(180_000 * m);
+  DSA_CODE_ACTIVITY_WINDOW = Math.round(30_000 * m);
+  SD_CANVAS_ACTIVITY_WINDOW = Math.round(15_000 * m);
+}
 
 export function startSilenceTimer(conn: InterviewConnection) {
   stopSilenceTimer(conn);
@@ -39,6 +52,8 @@ function checkSilence(conn: InterviewConnection) {
   if (conn.waitingForAiResponse) return;
   if (conn.silencePromptCount >= MAX_SILENCE_PROMPTS) return;
 
+  applyPaceMultiplier(conn);
+
   const now = Date.now();
   if (now - conn.lastSilencePromptTime < SILENCE_COOLDOWN) return;
 
@@ -57,8 +72,14 @@ function checkSilence(conn: InterviewConnection) {
     return;
   }
 
-  // Fall through to generic silence prompt for all modes
-  if (audioElapsed >= VOICE_SILENCE_THRESHOLD) {
+  // Fall through to generic silence prompt — threshold depends on variant tier
+  const voiceThreshold =
+    conn.silenceTier === "extended"
+      ? VOICE_EXTENDED_THRESHOLD
+      : conn.silenceTier === "design_critique"
+        ? VOICE_DESIGN_CRITIQUE_THRESHOLD
+        : VOICE_SILENCE_THRESHOLD;
+  if (audioElapsed >= voiceThreshold) {
     sendSilencePrompt(conn, "voice");
   }
 }
@@ -73,30 +94,66 @@ function sendSilencePrompt(
   conn.lastSilencePromptTime = Date.now();
   conn.silencePromptActive = true;
 
-  const text =
-    mode === "voice"
-      ? `[SYSTEM: The candidate has been silent for 30 seconds. If appropriate for the current moment in the interview, gently encourage them to share their thoughts. You might ask an open-ended question like "Take your time — what are you thinking?" or "Feel free to think out loud." Only prompt if it feels natural — don't interrupt their thinking if they seem to be working through something.]`
-      : mode === "dsa"
-        ? `[SYSTEM: The candidate has been coding silently for 2 minutes without speaking. Do NOT look at or analyze their code directly. Instead, ask a process-oriented question about their approach. For example: "Could you walk me through your approach so far?" or "What's your current thinking on the time complexity?" If they seem stuck, offer a subtle hint or ask a leading question rather than pointing out errors. Use probing questions to keep them talking about their solution without giving it away.]`
-        : buildSdSilencePrompt(conn.lastCanvasSnapshotData);
+  const escalation =
+    conn.silencePromptCount === 1
+      ? "gentle"
+      : conn.silencePromptCount === 2
+        ? "firm"
+        : "direct";
+  const stage = conn.pacing?.getState().stage ?? "current";
 
-  conn.gemini.send(
-    JSON.stringify({
-      clientContent: {
-        turns: [{ role: "user", parts: [{ text }] }],
-        turnComplete: true,
-      },
-    }),
+  const text = buildContextSilencePrompt(
+    mode,
+    escalation,
+    stage,
+    conn.lastCanvasSnapshotData,
+    conn.isDsaMode || conn.isSystemDesign,
   );
+
+  try {
+    conn.gemini.send(
+      JSON.stringify({
+        realtimeInput: {
+          text,
+          completeTurn: true,
+        },
+      }),
+    );
+  } catch (err) {
+    console.error("[silence] failed to send prompt:", err);
+    return;
+  }
 
   conn.waitingForAiResponse = true;
 }
 
-function buildSdSilencePrompt(canvasData: unknown): string {
-  const canvasContext =
-    canvasData && typeof canvasData === "object"
-      ? `\n\nLatest canvas state for reference:\n${JSON.stringify(canvasData).slice(0, 800)}`
-      : "";
+function buildContextSilencePrompt(
+  mode: "voice" | "dsa" | "sd",
+  escalation: "gentle" | "firm" | "direct",
+  stage: string,
+  canvasData: unknown,
+  _hasVisualContext: boolean,
+): string {
+  const tone =
+    escalation === "gentle"
+      ? "Gently encourage them to share their thoughts if it feels natural. Don't interrupt real thinking."
+      : escalation === "firm"
+        ? "They seem to be taking longer than expected. Ask a specific question about what they're working through."
+        : "They have been quiet for an extended period. Politely ask if they need clarification or would like to move forward.";
 
-  return `[SYSTEM: The candidate has been working on their diagram silently for 3 minutes. Do NOT analyze or critique their design directly. Instead, ask a Socratic question about their choices. Reference what they've drawn on the canvas. For example: "I see you've added [component] — what tradeoffs did you consider there?" or "How would this design handle a sudden spike in traffic to [specific part of their diagram]?" You could also gently introduce a constraint change relevant to their current design. Keep the conversation going without evaluating their work explicitly.]${canvasContext}`;
+  switch (mode) {
+    case "voice":
+      return `[SYSTEM: The candidate has been silent (${escalation} prompt). ${tone} You might ask something like "Take your time — what are you thinking?" or ask about the ${stage} stage of the discussion if relevant.]`;
+
+    case "dsa":
+      return `[SYSTEM: The candidate has been coding silently (${escalation} prompt). ${tone} Do NOT look at their code directly. Instead, ask a process-oriented question about their approach for the current ${stage} phase. For a first prompt try "Could you walk me through your approach so far?" For a follow-up, be more specific about the aspect they should address.]`;
+
+    case "sd": {
+      const canvasContext =
+        canvasData && typeof canvasData === "object"
+          ? `\n\nLatest canvas state:\n${JSON.stringify(canvasData).slice(0, 600)}`
+          : "";
+      return `[SYSTEM: The candidate has been working on their diagram silently (${escalation} prompt during ${stage}). ${tone} Ask a Socratic question about their design choices rather than evaluating them.${canvasContext}]`;
+    }
+  }
 }

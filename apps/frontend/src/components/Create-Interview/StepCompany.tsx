@@ -11,11 +11,11 @@ const btnNext = (enabled: boolean): React.CSSProperties => ({
   padding: "10px 24px",
   borderRadius: "8px",
   border: "none",
-  background: enabled ? "var(--landing-fg, #eceae6)" : "var(--color-border)",
-  color: enabled ? "var(--landing-bg, #080808)" : "var(--color-text-muted)",
+  background: "var(--landing-fg, #eceae6)",
+  color: "var(--landing-bg, #080808)",
   fontSize: "13px",
   fontWeight: 500,
-  cursor: enabled ? "pointer" : "default",
+  cursor: "pointer",
   letterSpacing: "-0.01em",
   opacity: enabled ? 1 : 0.55,
 });
@@ -23,20 +23,25 @@ const btnNext = (enabled: boolean): React.CSSProperties => ({
 interface StepCompanyProps {
   selectedCompanyId: string | null;
   customCompanyName: string;
+  category?: string | null;
   onSelectCompany: (id: string | null) => void;
   onCustomCompanyChange: (name: string) => void;
   onContinue: () => void;
   onSkip: () => void;
+  onBack?: () => void;
 }
 
 export function StepCompany({
   selectedCompanyId,
   customCompanyName,
+  category,
   onSelectCompany,
   onCustomCompanyChange,
   onContinue,
   onSkip,
+  onBack,
 }: StepCompanyProps) {
+  const isCustom = selectedCompanyId === "__custom__";
   return (
     <motion.div
       key="step-0"
@@ -58,7 +63,7 @@ export function StepCompany({
             margin: "0 0 6px",
           }}
         >
-          Step 1 of 5
+          Step 2 of 6
         </motion.p>
         <motion.h1
           initial={{ opacity: 0, y: 8 }}
@@ -73,7 +78,7 @@ export function StepCompany({
             margin: 0,
           }}
         >
-          Select a company
+          {isCustom ? "Enter your company" : "Select a company"}
         </motion.h1>
         <motion.p
           initial={{ opacity: 0 }}
@@ -86,25 +91,17 @@ export function StepCompany({
             lineHeight: 1.4,
           }}
         >
-          Every company interviews differently. Pick one and we'll adapt the AI
-          to match.
+          {isCustom
+            ? "Type your company and we'll adapt the AI to match."
+            : "Every company interviews differently. Pick one and we'll adapt the AI to match."}
         </motion.p>
       </div>
-      <CompanyGrid
-        selectedCompanyId={selectedCompanyId}
-        onSelect={(id) => {
-          onSelectCompany(id);
-          if (id && id !== "__custom__") {
-            onContinue();
-          }
-        }}
-      />
-      {selectedCompanyId === "__custom__" && (
+
+      {isCustom ? (
         <motion.div
           initial={{ opacity: 0, y: -8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.2 }}
-          style={{ marginTop: "16px" }}
         >
           <p
             style={{
@@ -142,40 +139,116 @@ export function StepCompany({
               fontFamily: "inherit",
             }}
           />
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "flex-end",
+              marginTop: "16px",
+            }}
+          >
+            <motion.button
+              onClick={() => customCompanyName.trim() && onContinue()}
+              whileHover={{ opacity: 0.88 }}
+              whileTap={{ scale: 0.97 }}
+              style={{
+                padding: "10px 24px",
+                borderRadius: "8px",
+                border: "none",
+                background: customCompanyName.trim()
+                  ? "var(--landing-fg, #eceae6)"
+                  : "var(--color-border)",
+                color: customCompanyName.trim()
+                  ? "var(--landing-bg, #080808)"
+                  : "var(--color-text-muted)",
+                fontSize: "13px",
+                fontWeight: 500,
+                cursor: customCompanyName.trim() ? "pointer" : "default",
+                letterSpacing: "-0.01em",
+                opacity: customCompanyName.trim() ? 1 : 0.55,
+              }}
+            >
+              Continue to Round →
+            </motion.button>
+          </div>
+          <div style={{ marginTop: "16px" }}>
+            <motion.button
+              onClick={() => {
+                onSelectCompany(null);
+                onCustomCompanyChange("");
+              }}
+              whileHover={{
+                borderColor: "var(--app-accent, #b8a88a)",
+                color: "var(--app-accent, #b8a88a)",
+              }}
+              whileTap={{ scale: 0.97 }}
+              style={{
+                padding: "8px 12px",
+                borderRadius: "6px",
+                border: "1px solid var(--color-border)",
+                background: "transparent",
+                color: "var(--color-text-muted)",
+                fontSize: "12px",
+                cursor: "pointer",
+              }}
+            >
+              ← Choose from list
+            </motion.button>
+          </div>
         </motion.div>
+      ) : (
+        <>
+          <CompanyGrid
+            selectedCompanyId={selectedCompanyId}
+            category={category}
+            onSelect={(id) => {
+              onSelectCompany(id);
+              if (id && id !== "__custom__") {
+                onContinue();
+              }
+            }}
+          />
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              marginTop: "24px",
+            }}
+          >
+            {onBack && (
+              <motion.button
+                onClick={onBack}
+                whileHover={{
+                  borderColor: "var(--app-accent, #b8a88a)",
+                  color: "var(--app-accent, #b8a88a)",
+                }}
+                whileTap={{ scale: 0.97 }}
+                style={{
+                  padding: "10px 20px",
+                  borderRadius: "10px",
+                  border: "1px solid var(--color-border)",
+                  background: "transparent",
+                  color: "var(--color-text-muted)",
+                  fontSize: "13px",
+                  cursor: "pointer",
+                }}
+              >
+                ← Back
+              </motion.button>
+            )}
+            <motion.button
+              onClick={() => {
+                if (selectedCompanyId) onContinue();
+                else onSkip();
+              }}
+              whileHover={{ opacity: 0.88 }}
+              whileTap={{ scale: 0.97 }}
+              style={btnNext(!!selectedCompanyId)}
+            >
+              {selectedCompanyId ? "Continue" : "Skip"} →
+            </motion.button>
+          </div>
+        </>
       )}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "flex-end",
-          marginTop: "24px",
-        }}
-      >
-        <motion.button
-          onClick={() => {
-            if (selectedCompanyId && selectedCompanyId !== "__custom__")
-              onContinue();
-            else if (
-              selectedCompanyId === "__custom__" &&
-              customCompanyName.trim()
-            )
-              onContinue();
-            else onSkip();
-          }}
-          whileHover={{ opacity: 0.88 }}
-          whileTap={{ scale: 0.97 }}
-          style={btnNext(
-            selectedCompanyId !== "__custom__" || !!customCompanyName.trim(),
-          )}
-        >
-          {selectedCompanyId
-            ? selectedCompanyId === "__custom__" && !customCompanyName.trim()
-              ? "Enter a company name"
-              : "Continue"
-            : "Skip"}{" "}
-          →
-        </motion.button>
-      </div>
     </motion.div>
   );
 }

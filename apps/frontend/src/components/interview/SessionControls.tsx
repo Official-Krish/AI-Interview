@@ -193,15 +193,6 @@ export function SessionControls({
                   strokeWidth="1.5"
                   strokeLinecap="round"
                 />
-                <line
-                  x1="4"
-                  y1="4"
-                  x2="20"
-                  y2="20"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                />
               </>
             ) : (
               <>

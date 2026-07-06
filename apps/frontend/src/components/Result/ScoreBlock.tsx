@@ -4,21 +4,57 @@ import type { getVerdict } from "./helpers";
 interface Props {
   showScore: boolean;
   overall: number;
+  overallConfidence: number | null;
   comm: number;
+  commConfidence: number | null;
   tech: number;
+  techConfidence: number | null;
   prob: number;
+  probConfidence: number | null;
   verdict: ReturnType<typeof getVerdict>;
   retryingEval: boolean;
   evalStuck: boolean;
   onRetry: () => Promise<void>;
 }
 
+function ConfidenceBar({ confidence }: { confidence: number | null }) {
+  if (confidence == null) return null;
+  const pct = Math.round(Math.min(confidence, 95));
+  const color = pct >= 70 ? "#22c55e" : pct >= 40 ? "#eab308" : "#ef4444";
+  return (
+    <span
+      className="flex items-center gap-1 ml-auto"
+      title={`${pct}% confidence`}
+    >
+      <span
+        className="text-[9px] font-mono"
+        style={{ color: "var(--color-text-muted)" }}
+      >
+        {pct}%
+      </span>
+      <svg width="28" height="4" viewBox="0 0 28 4" className="flex-shrink-0">
+        <rect width="28" height="4" rx="2" fill="var(--color-border-light)" />
+        <rect
+          width={Math.round((28 * pct) / 100)}
+          height="4"
+          rx="2"
+          fill={color}
+        />
+      </svg>
+    </span>
+  );
+}
+
 export function ScoreBlock({
   showScore,
   overall,
+  overallConfidence,
   comm,
+  commConfidence,
   tech,
+  techConfidence,
   prob,
+  probConfidence,
   verdict,
   retryingEval,
   evalStuck,
@@ -47,6 +83,14 @@ export function ScoreBlock({
               <span className="text-[10px] text-[var(--color-text-muted)] tracking-wider mt-1 uppercase font-semibold">
                 SCORE
               </span>
+              {overallConfidence != null && (
+                <span
+                  className="text-[9px] mt-1 font-mono"
+                  style={{ color: "var(--color-text-muted)" }}
+                >
+                  {Math.round(Math.min(overallConfidence, 95))}% confident
+                </span>
+              )}
             </div>
           </div>
           <div className="res-score-metrics">
@@ -71,6 +115,7 @@ export function ScoreBlock({
                   />
                 </div>
                 <span className="res-metric-value">{comm}</span>
+                <ConfidenceBar confidence={commConfidence} />
               </div>
               <div className="res-metric-row">
                 <span className="res-metric-label">Technical</span>
@@ -81,6 +126,7 @@ export function ScoreBlock({
                   />
                 </div>
                 <span className="res-metric-value">{tech}</span>
+                <ConfidenceBar confidence={techConfidence} />
               </div>
               <div className="res-metric-row">
                 <span className="res-metric-label">Problem Solving</span>
@@ -91,6 +137,7 @@ export function ScoreBlock({
                   />
                 </div>
                 <span className="res-metric-value">{prob}</span>
+                <ConfidenceBar confidence={probConfidence} />
               </div>
             </div>
           </div>
