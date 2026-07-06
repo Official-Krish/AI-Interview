@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   update-manifests:
@@ -95,11 +96,53 @@ jobs:
           steps.gitcheck.outputs.changed == 'true'
         run: |
           git add ops/deployment.yml
-          git commit -m "chore: update image tags to ${{ steps.update_tags.outputs.version }}"
+          git commit -m "cd(deploy): update container images to v${{ steps.update_tags.outputs.version }}"
 
-      - name: Push Changes
+      - name: Create Automation Branch
+        id: branch
+        if: |
+          steps.changed.outputs.deploy == 'true' &&
+          steps.gitcheck.outputs.changed == 'true'
+        shell: bash
+        run: |
+          BRANCH="automation/update-${{ steps.update_tags.outputs.version }}"
+          git checkout -b "$BRANCH"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+      - name: Push Branch
         if: |
           steps.changed.outputs.deploy == 'true' &&
           steps.gitcheck.outputs.changed == 'true'
         run: |
-          git push origin HEAD:main
+          git push origin "${{ steps.branch.outputs.branch }}"
+
+      - name: Create Pull Request
+        if: |
+          steps.changed.outputs.deploy == 'true' &&
+          steps.gitcheck.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.ADMIN_PAT }}
+        run: |
+          gh pr create \
+            --title "cd(deploy): update container images to v${{ steps.update_tags.outputs.version }}" \
+            --body "Automated PR to update container image tags in deployment manifests.
+
+## Changes
+- Bumps backend image tags to the latest build
+- Bumps frontend image tags to the latest build
+
+Auto-merge is enabled — this PR will merge automatically." \
+            --base main \
+            --head "${{ steps.branch.outputs.branch }}"
+
+      - name: Enable Auto Merge
+        if: |
+          steps.changed.outputs.deploy == 'true' &&
+          steps.gitcheck.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.ADMIN_PAT }}
+        run: |
+          gh pr merge \
+            --auto \
+            --merge \
+            --subject "cd(deploy): update container images to v${{ steps.update_tags.outputs.version }}"
