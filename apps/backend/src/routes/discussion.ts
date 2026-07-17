@@ -2,6 +2,11 @@ import { Elysia, t } from "elysia";
 import { prisma } from "../lib/prisma";
 import { authGuard } from "../middleware/auth";
 import { GoogleGenAI } from "@google/genai";
+import {
+  getCachedQuestion,
+  setCachedQuestion,
+  clearCachedQuestion,
+} from "../lib/questionCache";
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY!,
@@ -18,29 +23,6 @@ interface DiscussionCacheEntry {
   questionCount: number;
 }
 
-interface DiscussionCacheMeta {
-  entry: DiscussionCacheEntry;
-  createdAt: number;
-  sessionIds: Set<string>;
-}
-
-const questionCache = new Map<string, DiscussionCacheMeta>();
-const CACHE_TTL_MS = 30 * 60_000;
-const CACHE_MAX_ENTRIES = 100;
-const cacheAccessOrder: string[] = [];
-
-function evictIfNeeded() {
-  if (questionCache.size < CACHE_MAX_ENTRIES) return;
-  const oldest = cacheAccessOrder.shift();
-  if (oldest) questionCache.delete(oldest);
-}
-
-function touchCacheKey(key: string) {
-  const idx = cacheAccessOrder.indexOf(key);
-  if (idx !== -1) cacheAccessOrder.splice(idx, 1);
-  cacheAccessOrder.push(key);
-}
-
 function buildCacheKey(
   roundLabel: string,
   depth: string,
@@ -52,7 +34,7 @@ function buildCacheKey(
   return `${roundLabel}::${depth}::${style}::${roleCategory ?? "__none__"}::${companyName ?? "__none__"}::${position ?? "__none__"}`;
 }
 
-export function getDiscussionQuestion(
+export async function getDiscussionQuestion(
   interviewId: string,
   roundLabel: string,
   depth: string,
@@ -61,30 +43,10 @@ export function getDiscussionQuestion(
   companyName: string | null,
   position: string | null,
 ) {
-  for (const [key, meta] of questionCache) {
-    if (meta.sessionIds.has(interviewId)) {
-      touchCacheKey(key);
-      return meta.entry;
-    }
-  }
-  const key = buildCacheKey(
-    roundLabel,
-    depth,
-    style,
-    roleCategory,
-    companyName,
-    position,
-  );
-  const meta = questionCache.get(key);
-  if (meta) {
-    meta.sessionIds.add(interviewId);
-    touchCacheKey(key);
-    return meta.entry;
-  }
-  return null;
+  return getCachedQuestion<DiscussionCacheEntry>("discussion", interviewId);
 }
 
-export function cacheDiscussionQuestion(
+export async function cacheDiscussionQuestion(
   interviewId: string,
   roundLabel: string,
   depth: string,
@@ -94,47 +56,24 @@ export function cacheDiscussionQuestion(
   position: string | null,
   entry: DiscussionCacheEntry,
 ) {
-  const key = buildCacheKey(
-    roundLabel,
-    depth,
-    style,
-    roleCategory,
-    companyName,
-    position,
-  );
-  evictIfNeeded();
-  const existing = questionCache.get(key);
-  if (existing) {
-    existing.sessionIds.add(interviewId);
-    existing.entry = entry;
-    existing.createdAt = Date.now();
-    touchCacheKey(key);
-    return;
-  }
-  questionCache.set(key, {
+  return setCachedQuestion(
+    "discussion",
+    interviewId,
+    buildCacheKey(
+      roundLabel,
+      depth,
+      style,
+      roleCategory,
+      companyName,
+      position,
+    ),
     entry,
-    createdAt: Date.now(),
-    sessionIds: new Set([interviewId]),
-  });
-  touchCacheKey(key);
+  );
 }
 
 export function clearDiscussionQuestion(interviewId: string) {
-  for (const [, meta] of questionCache) {
-    meta.sessionIds.delete(interviewId);
-  }
+  clearCachedQuestion("discussion", interviewId);
 }
-
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, meta] of questionCache) {
-    if (now - meta.createdAt > CACHE_TTL_MS) {
-      questionCache.delete(key);
-      const idx = cacheAccessOrder.indexOf(key);
-      if (idx !== -1) cacheAccessOrder.splice(idx, 1);
-    }
-  }
-}, 60_000);
 
 const DISCUSSION_GENERATION_PROMPTS: Record<string, string> = {
   "Threat Modeling": `You are generating a threat modeling interview question. The question should test:
@@ -292,7 +231,7 @@ export const discussionRoutes = new Elysia({ prefix: "/discussion" })
           (interview as { interviewStyle?: string }).interviewStyle ||
           "PROFESSIONAL";
 
-        const existing = getDiscussionQuestion(
+        const existing = await getDiscussionQuestion(
           interviewId,
           roundLabel,
           depth,
@@ -399,7 +338,7 @@ export const discussionRoutes = new Elysia({ prefix: "/discussion" })
           questionCount,
         };
 
-        cacheDiscussionQuestion(
+        await cacheDiscussionQuestion(
           interviewId,
           roundLabel,
           depth,

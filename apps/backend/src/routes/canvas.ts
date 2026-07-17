@@ -2,6 +2,11 @@ import { Elysia, t } from "elysia";
 import { prisma } from "../lib/prisma";
 import { authGuard } from "../middleware/auth";
 import { GoogleGenAI } from "@google/genai";
+import {
+  getCachedQuestion,
+  setCachedQuestion,
+  clearCachedQuestion,
+} from "../lib/questionCache";
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY!,
@@ -18,29 +23,6 @@ interface CanvasCacheEntry {
   questionCount: number;
 }
 
-interface CanvasCacheMeta {
-  entry: CanvasCacheEntry;
-  createdAt: number;
-  sessionIds: Set<string>;
-}
-
-const questionCache = new Map<string, CanvasCacheMeta>();
-const CACHE_TTL_MS = 30 * 60_000;
-const CACHE_MAX_ENTRIES = 100;
-const cacheAccessOrder: string[] = [];
-
-function evictIfNeeded() {
-  if (questionCache.size < CACHE_MAX_ENTRIES) return;
-  const oldest = cacheAccessOrder.shift();
-  if (oldest) questionCache.delete(oldest);
-}
-
-function touchCacheKey(key: string) {
-  const idx = cacheAccessOrder.indexOf(key);
-  if (idx !== -1) cacheAccessOrder.splice(idx, 1);
-  cacheAccessOrder.push(key);
-}
-
 function buildCacheKey(
   roundLabel: string,
   depth: string,
@@ -52,7 +34,11 @@ function buildCacheKey(
   return `${roundLabel}::${depth}::${style}::${roleCategory ?? "__none__"}::${companyName ?? "__none__"}::${position ?? "__none__"}`;
 }
 
-export function getCanvasQuestion(
+export function clearCanvasQuestion(interviewId: string) {
+  clearCachedQuestion("canvas", interviewId);
+}
+
+export async function getCanvasQuestion(
   interviewId: string,
   roundLabel: string,
   depth: string,
@@ -61,30 +47,10 @@ export function getCanvasQuestion(
   companyName: string | null,
   position: string | null,
 ) {
-  for (const [key, meta] of questionCache) {
-    if (meta.sessionIds.has(interviewId)) {
-      touchCacheKey(key);
-      return meta.entry;
-    }
-  }
-  const key = buildCacheKey(
-    roundLabel,
-    depth,
-    style,
-    roleCategory,
-    companyName,
-    position,
-  );
-  const meta = questionCache.get(key);
-  if (meta) {
-    meta.sessionIds.add(interviewId);
-    touchCacheKey(key);
-    return meta.entry;
-  }
-  return null;
+  return getCachedQuestion<CanvasCacheEntry>("canvas", interviewId);
 }
 
-export function cacheCanvasQuestion(
+export async function cacheCanvasQuestion(
   interviewId: string,
   roundLabel: string,
   depth: string,
@@ -94,49 +60,20 @@ export function cacheCanvasQuestion(
   position: string | null,
   entry: CanvasCacheEntry,
 ) {
-  const key = buildCacheKey(
-    roundLabel,
-    depth,
-    style,
-    roleCategory,
-    companyName,
-    position,
-  );
-  evictIfNeeded();
-
-  const existing = questionCache.get(key);
-  if (existing) {
-    existing.sessionIds.add(interviewId);
-    existing.entry = entry;
-    existing.createdAt = Date.now();
-    touchCacheKey(key);
-    return;
-  }
-
-  questionCache.set(key, {
+  return setCachedQuestion(
+    "canvas",
+    interviewId,
+    buildCacheKey(
+      roundLabel,
+      depth,
+      style,
+      roleCategory,
+      companyName,
+      position,
+    ),
     entry,
-    createdAt: Date.now(),
-    sessionIds: new Set([interviewId]),
-  });
-  touchCacheKey(key);
+  );
 }
-
-export function clearCanvasQuestion(interviewId: string) {
-  for (const [, meta] of questionCache) {
-    meta.sessionIds.delete(interviewId);
-  }
-}
-
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, meta] of questionCache) {
-    if (now - meta.createdAt > CACHE_TTL_MS) {
-      questionCache.delete(key);
-      const idx = cacheAccessOrder.indexOf(key);
-      if (idx !== -1) cacheAccessOrder.splice(idx, 1);
-    }
-  }
-}, 60_000);
 
 const ROUND_GENERATION_PROMPTS: Record<string, string> = {
   "Product Sense": `You are generating a product sense interview question. The question should test:
@@ -284,14 +221,9 @@ export const canvasRoutes = new Elysia({ prefix: "/canvas" })
           (interview as { interviewStyle?: string }).interviewStyle ||
           "PROFESSIONAL";
 
-        const existing = getCanvasQuestion(
+        const existing = await getCachedQuestion<CanvasCacheEntry>(
+          "canvas",
           interviewId,
-          roundLabel,
-          depth,
-          style,
-          roleCategory,
-          companyName,
-          position,
         );
         if (existing) {
           const questions = [
@@ -394,14 +326,17 @@ export const canvasRoutes = new Elysia({ prefix: "/canvas" })
           questionCount,
         };
 
-        cacheCanvasQuestion(
+        await setCachedQuestion(
+          "canvas",
           interviewId,
-          roundLabel,
-          depth,
-          style,
-          roleCategory,
-          companyName,
-          position,
+          buildCacheKey(
+            roundLabel,
+            depth,
+            style,
+            roleCategory,
+            companyName,
+            position,
+          ),
           entry,
         );
 

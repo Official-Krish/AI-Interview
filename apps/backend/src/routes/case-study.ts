@@ -2,6 +2,11 @@ import { Elysia, t } from "elysia";
 import { prisma } from "../lib/prisma";
 import { authGuard } from "../middleware/auth";
 import { GoogleGenAI } from "@google/genai";
+import {
+  getCachedQuestion,
+  setCachedQuestion,
+  clearCachedQuestion,
+} from "../lib/questionCache";
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY!,
@@ -18,29 +23,6 @@ interface CaseStudyCacheEntry {
   questionCount: number;
 }
 
-interface CaseStudyCacheMeta {
-  entry: CaseStudyCacheEntry;
-  createdAt: number;
-  sessionIds: Set<string>;
-}
-
-const questionCache = new Map<string, CaseStudyCacheMeta>();
-const CACHE_TTL_MS = 30 * 60_000;
-const CACHE_MAX_ENTRIES = 100;
-const cacheAccessOrder: string[] = [];
-
-function evictIfNeeded() {
-  if (questionCache.size < CACHE_MAX_ENTRIES) return;
-  const oldest = cacheAccessOrder.shift();
-  if (oldest) questionCache.delete(oldest);
-}
-
-function touchCacheKey(key: string) {
-  const idx = cacheAccessOrder.indexOf(key);
-  if (idx !== -1) cacheAccessOrder.splice(idx, 1);
-  cacheAccessOrder.push(key);
-}
-
 function buildCacheKey(
   roundLabel: string,
   depth: string,
@@ -52,6 +34,10 @@ function buildCacheKey(
   return `${roundLabel}::${depth}::${style}::${roleCategory ?? "__none__"}::${companyName ?? "__none__"}::${position ?? "__none__"}`;
 }
 
+export function clearCaseStudyQuestion(interviewId: string) {
+  clearCachedQuestion("casestudy", interviewId);
+}
+
 export function getCaseStudyQuestion(
   interviewId: string,
   roundLabel: string,
@@ -61,27 +47,7 @@ export function getCaseStudyQuestion(
   companyName: string | null,
   position: string | null,
 ) {
-  for (const [key, meta] of questionCache) {
-    if (meta.sessionIds.has(interviewId)) {
-      touchCacheKey(key);
-      return meta.entry;
-    }
-  }
-  const key = buildCacheKey(
-    roundLabel,
-    depth,
-    style,
-    roleCategory,
-    companyName,
-    position,
-  );
-  const meta = questionCache.get(key);
-  if (meta) {
-    meta.sessionIds.add(interviewId);
-    touchCacheKey(key);
-    return meta.entry;
-  }
-  return null;
+  return getCachedQuestion<CaseStudyCacheEntry>("casestudy", interviewId);
 }
 
 export function cacheCaseStudyQuestion(
@@ -94,47 +60,20 @@ export function cacheCaseStudyQuestion(
   position: string | null,
   entry: CaseStudyCacheEntry,
 ) {
-  const key = buildCacheKey(
-    roundLabel,
-    depth,
-    style,
-    roleCategory,
-    companyName,
-    position,
-  );
-  evictIfNeeded();
-  const existing = questionCache.get(key);
-  if (existing) {
-    existing.sessionIds.add(interviewId);
-    existing.entry = entry;
-    existing.createdAt = Date.now();
-    touchCacheKey(key);
-    return;
-  }
-  questionCache.set(key, {
+  return setCachedQuestion(
+    "casestudy",
+    interviewId,
+    buildCacheKey(
+      roundLabel,
+      depth,
+      style,
+      roleCategory,
+      companyName,
+      position,
+    ),
     entry,
-    createdAt: Date.now(),
-    sessionIds: new Set([interviewId]),
-  });
-  touchCacheKey(key);
+  );
 }
-
-export function clearCaseStudyQuestion(interviewId: string) {
-  for (const [, meta] of questionCache) {
-    meta.sessionIds.delete(interviewId);
-  }
-}
-
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, meta] of questionCache) {
-    if (now - meta.createdAt > CACHE_TTL_MS) {
-      questionCache.delete(key);
-      const idx = cacheAccessOrder.indexOf(key);
-      if (idx !== -1) cacheAccessOrder.splice(idx, 1);
-    }
-  }
-}, 60_000);
 
 const CASE_STUDY_PROMPT = `You are generating a case study interview question for a consulting or business strategy interview. The question should test:
 - Problem structuring and hypothesis-driven thinking
@@ -269,7 +208,7 @@ export const caseStudyRoutes = new Elysia({ prefix: "/case-study" })
           (interview as { interviewStyle?: string }).interviewStyle ||
           "PROFESSIONAL";
 
-        const existing = getCaseStudyQuestion(
+        const existing = await getCaseStudyQuestion(
           interviewId,
           "Case Study",
           depth,
@@ -374,7 +313,7 @@ export const caseStudyRoutes = new Elysia({ prefix: "/case-study" })
           questionCount,
         };
 
-        cacheCaseStudyQuestion(
+        await cacheCaseStudyQuestion(
           interviewId,
           "Case Study",
           depth,

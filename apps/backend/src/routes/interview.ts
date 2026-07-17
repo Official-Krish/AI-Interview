@@ -4,6 +4,7 @@ import { authGuard } from "../middleware/auth";
 import { generateResumeUrl } from "../lib/s3";
 import { extractUsername, parseGithubProfile } from "../utils/githubParser";
 import { strictRateLimit } from "../middleware/rateLimit";
+import { cached } from "../lib/cacheMiddleware";
 import type { InterviewStyle, InterviewDepth } from "@evalio/db";
 
 export const interviewRoutes = new Elysia({ prefix: "/interview" }).guard(
@@ -157,20 +158,28 @@ export const interviewRoutes = new Elysia({ prefix: "/interview" }).guard(
           },
         ),
       )
-      .get("/", async ({ user, query }) => {
-        const interviews = await prisma.interviewSession.findMany({
-          where: { userId: user.id },
-          orderBy: { createdAt: "desc" },
-          skip: Number(query.skip) || 0,
-          take: Math.min(Number(query.take) || 20, 100),
-          include: {
-            _count: { select: { turns: true } },
-            resume: { select: { id: true, version: true } },
-            summary: true,
+      .get(
+        "/",
+        cached(
+          60,
+          async ({ user, query }: any) => {
+            const interviews = await prisma.interviewSession.findMany({
+              where: { userId: user.id },
+              orderBy: { createdAt: "desc" },
+              skip: Number(query.skip) || 0,
+              take: Math.min(Number(query.take) || 20, 100),
+              include: {
+                _count: { select: { turns: true } },
+                resume: { select: { id: true, version: true } },
+                summary: true,
+              },
+            });
+            return { interviews };
           },
-        });
-        return { interviews };
-      })
+          ({ user, query }: any) =>
+            `interviews:${user.id}:${query.skip ?? "0"}:${query.take ?? "20"}`,
+        ),
+      )
       .get("/:id", async ({ params: { id }, user, set }) => {
         const interview = await prisma.interviewSession.findUnique({
           where: { id },

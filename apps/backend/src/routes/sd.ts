@@ -2,6 +2,11 @@ import { Elysia, t } from "elysia";
 import { prisma } from "../lib/prisma";
 import { authGuard } from "../middleware/auth";
 import { GoogleGenAI } from "@google/genai";
+import {
+  getCachedQuestion,
+  setCachedQuestion,
+  clearCachedQuestion,
+} from "../lib/questionCache";
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY!,
@@ -18,30 +23,6 @@ interface SdCacheEntry {
   dbQuestionId: string | null;
 }
 
-interface SdCacheMeta {
-  entry: SdCacheEntry;
-  createdAt: number;
-  sessionIds: Set<string>;
-}
-
-const questionCache = new Map<string, SdCacheMeta>();
-const CACHE_TTL_MS = 30 * 60_000;
-const CACHE_MAX_ENTRIES = 100;
-// LRU tracking for eviction
-const cacheAccessOrder: string[] = [];
-
-function evictIfNeeded() {
-  if (questionCache.size < CACHE_MAX_ENTRIES) return;
-  const oldest = cacheAccessOrder.shift();
-  if (oldest) questionCache.delete(oldest);
-}
-
-function touchCacheKey(key: string) {
-  const idx = cacheAccessOrder.indexOf(key);
-  if (idx !== -1) cacheAccessOrder.splice(idx, 1);
-  cacheAccessOrder.push(key);
-}
-
 function buildCacheKey(
   roleCategory: string | null,
   companyName: string | null,
@@ -50,69 +31,33 @@ function buildCacheKey(
   return `${roleCategory ?? "__none__"}::${companyName ?? "__none__"}::${position ?? "__none__"}`;
 }
 
-export function getSdQuestion(
+export function clearSdQuestion(interviewId: string) {
+  clearCachedQuestion("sd", interviewId);
+}
+
+export async function getSdQuestion(
   interviewId: string,
   roleCategory: string | null,
   companyName: string | null,
   position: string | null,
 ) {
-  // First check by interviewId (direct match)
-  for (const [, meta] of questionCache) {
-    if (meta.sessionIds.has(interviewId)) {
-      touchCacheKey(buildCacheKey(roleCategory, companyName, position));
-      return meta.entry;
-    }
-  }
-  return null;
+  return getCachedQuestion<SdCacheEntry>("sd", interviewId);
 }
 
-export function cacheSdQuestion(
+export async function cacheSdQuestion(
   interviewId: string,
   roleCategory: string | null,
   companyName: string | null,
   position: string | null,
   entry: SdCacheEntry,
 ) {
-  const key = buildCacheKey(roleCategory, companyName, position);
-  evictIfNeeded();
-
-  const existing = questionCache.get(key);
-  if (existing) {
-    existing.sessionIds.add(interviewId);
-    existing.entry = entry;
-    existing.createdAt = Date.now();
-    touchCacheKey(key);
-    return;
-  }
-
-  questionCache.set(key, {
+  return setCachedQuestion(
+    "sd",
+    interviewId,
+    buildCacheKey(roleCategory, companyName, position),
     entry,
-    createdAt: Date.now(),
-    sessionIds: new Set([interviewId]),
-  });
-  touchCacheKey(key);
+  );
 }
-
-export function clearSdQuestion(interviewId: string) {
-  for (const [, meta] of questionCache) {
-    meta.sessionIds.delete(interviewId);
-    if (meta.sessionIds.size === 0) {
-      // Cleanup happens via TTL check on next access
-    }
-  }
-}
-
-// Periodic cache cleanup — removes expired entries
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, meta] of questionCache) {
-    if (now - meta.createdAt > CACHE_TTL_MS) {
-      questionCache.delete(key);
-      const idx = cacheAccessOrder.indexOf(key);
-      if (idx !== -1) cacheAccessOrder.splice(idx, 1);
-    }
-  }
-}, 60_000);
 
 async function recordSeen(
   userId: string,
@@ -223,12 +168,10 @@ export const sdRoutes = new Elysia({ prefix: "/sd" })
         const roleCategory =
           (interview as { roleCategory?: string | null }).roleCategory ?? null;
 
-        // 1. In-memory cache hit
-        const existing = getSdQuestion(
+        // 1. Redis cache hit
+        const existing = await getCachedQuestion<SdCacheEntry>(
+          "sd",
           interviewId,
-          roleCategory,
-          companyName,
-          position,
         );
         if (existing) {
           return {
@@ -247,11 +190,10 @@ export const sdRoutes = new Elysia({ prefix: "/sd" })
           roleCategory,
         );
         if (fromDb) {
-          cacheSdQuestion(
+          await setCachedQuestion(
+            "sd",
             interviewId,
-            roleCategory,
-            companyName,
-            position,
+            buildCacheKey(roleCategory, companyName, position),
             fromDb,
           );
           await recordSeen(user.id, fromDb.dbQuestionId, interviewId);
@@ -593,11 +535,10 @@ This is a foundational overview. Feel free to dive deeper into any of these area
           saved.id,
         );
 
-        cacheSdQuestion(
+        await setCachedQuestion(
+          "sd",
           interviewId,
-          roleCategory,
-          companyName,
-          position,
+          buildCacheKey(roleCategory, companyName, position),
           entry,
         );
         await recordSeen(user.id, saved.id, interviewId);

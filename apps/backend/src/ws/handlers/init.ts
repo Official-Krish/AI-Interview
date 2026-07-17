@@ -294,7 +294,7 @@ export async function handleInit(
       : false;
     conn.isCanvasMode = isCanvasRound;
 
-    const sdQuestion = isCanvasRound
+    const sdQuestion = await (isCanvasRound
       ? getCanvasQuestion(
           interview.id,
           roundLabel!,
@@ -309,7 +309,7 @@ export async function handleInit(
           roleCategory,
           interview.companyName ?? null,
           interview.position ?? null,
-        );
+        ));
     console.log("[init] sdQuestion found:", !!sdQuestion);
     const sdQuestions =
       isCanvasRound && sdQuestion && (sdQuestion as any).questionCount > 1
@@ -388,7 +388,7 @@ export async function handleInit(
     console.log("[init] building Discussion prompt, round:", roundLabel);
     conn.isCanvasMode = true;
 
-    const sdQuestion = getDiscussionQuestion(
+    const sdQuestion = await getDiscussionQuestion(
       interview.id,
       roundLabel ?? "Case Study",
       conn.interviewDepth,

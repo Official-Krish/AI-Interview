@@ -22,6 +22,7 @@ import {
   getLockoutRemaining,
   clearFailedAttempts,
 } from "../lib/loginAttempt";
+import { cached } from "../lib/cacheMiddleware";
 
 const SECRET = Bun.env.JWT_SECRET;
 if (!SECRET) {
@@ -523,23 +524,30 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
     return { success: true };
   })
   .guard({}, (app) =>
-    app.use(authGuard).get("/me", async ({ user, set }) => {
-      const dbUser = await prisma.user.findUnique({
-        where: { id: user.id },
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          role: true,
-          emailVerified: true,
+    app.use(authGuard).get(
+      "/me",
+      cached(
+        30,
+        async ({ user, set }: any) => {
+          const dbUser = await prisma.user.findUnique({
+            where: { id: user.id },
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              role: true,
+              emailVerified: true,
+            },
+          });
+          if (!dbUser) {
+            set.status = 404;
+            return { error: "User not found" };
+          }
+          return { user: dbUser };
         },
-      });
-      if (!dbUser) {
-        set.status = 404;
-        return { error: "User not found" };
-      }
-      return { user: dbUser };
-    }),
+        ({ user }: any) => `me:${user.id}`,
+      ),
+    ),
   )
   .guard({}, (app) =>
     app.use(authGuard).post("/ws-token", async ({ jwt, user }) => {
