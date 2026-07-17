@@ -2,6 +2,7 @@ import { Elysia } from "elysia";
 import { jwt } from "@elysia/jwt";
 import type { Cookie } from "elysia";
 import { prisma } from "../lib/prisma";
+import { verifyAccessToken } from "../lib/tokens";
 
 const SECRET = Bun.env.JWT_SECRET;
 if (!SECRET) {
@@ -19,20 +20,39 @@ const roleCache = new Map<string, CacheEntry>();
 
 export const authGuard = new Elysia({ name: "auth-guard" })
   .use(jwt({ secret: SECRET, exp: "7d" }))
-  .resolve({ as: "scoped" }, async ({ jwt, cookie }) => {
-    const t = cookie.token as Cookie<unknown> | undefined;
-    const tokenValue = t?.value;
-    if (typeof tokenValue !== "string") {
+  .resolve({ as: "scoped" }, async ({ jwt, cookie, request, set }) => {
+    let payload: Awaited<ReturnType<typeof verifyAccessToken>> = null;
+
+    // Try access_token cookie first (new dual-token system)
+    const accessCookie = cookie.access_token as Cookie<unknown> | undefined;
+    if (accessCookie?.value && typeof accessCookie.value === "string") {
+      payload = await verifyAccessToken(accessCookie.value);
+    }
+
+    // Fallback: try legacy token cookie (backward compat)
+    if (!payload) {
+      const t = cookie.token as Cookie<unknown> | undefined;
+      const tokenValue = t?.value;
+      if (typeof tokenValue === "string") {
+        const legacyPayload = await jwt.verify(tokenValue);
+        if (legacyPayload && legacyPayload.id && legacyPayload.email) {
+          payload = {
+            id: legacyPayload.id as string,
+            email: legacyPayload.email as string,
+            name: legacyPayload.name as string | undefined,
+            role: (legacyPayload.role as "FREE" | "PRO" | "ADMIN") ?? "FREE",
+            roleVersion: (legacyPayload.roleVersion as number) ?? 0,
+          };
+        }
+      }
+    }
+
+    if (!payload) {
+      set.status = 401;
       throw new Error("Unauthorized");
     }
 
-    const payload = await jwt.verify(tokenValue);
-    if (!payload || !payload.id || !payload.email) {
-      throw new Error("Unauthorized");
-    }
-
-    const uid = payload.id as string;
-    const tokenRoleVersion = (payload.roleVersion as number) ?? 0;
+    const uid = payload.id;
 
     const cached = roleCache.get(uid);
     if (
@@ -43,8 +63,8 @@ export const authGuard = new Elysia({ name: "auth-guard" })
       return {
         user: {
           id: uid,
-          email: payload.email as string,
-          name: payload.name as string | undefined,
+          email: payload.email,
+          name: payload.name,
           role: cached.role,
         },
       };
@@ -56,13 +76,8 @@ export const authGuard = new Elysia({ name: "auth-guard" })
         select: { roleVersion: true, role: true },
       });
 
-      if (!user) {
-        cookie.token?.remove();
-        throw new Error("Unauthorized");
-      }
-
-      if (user.roleVersion !== tokenRoleVersion) {
-        cookie.token?.remove();
+      if (!user || user.roleVersion !== payload.roleVersion) {
+        set.status = 401;
         throw new Error("Unauthorized");
       }
 
@@ -71,13 +86,14 @@ export const authGuard = new Elysia({ name: "auth-guard" })
       return {
         user: {
           id: uid,
-          email: payload.email as string,
-          name: payload.name as string | undefined,
+          email: payload.email,
+          name: payload.name,
           role: user.role,
         },
       };
     } catch (err) {
       if (err instanceof Error && err.message === "Unauthorized") throw err;
+      set.status = 401;
       throw new Error("Unauthorized");
     }
   });

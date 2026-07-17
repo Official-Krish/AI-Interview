@@ -66,6 +66,12 @@ export const api = {
     return data as unknown as { user: User; verified: boolean };
   },
 
+  refresh: async () => {
+    const { data, error } = await client.api.auth.refresh.post();
+    if (error) throw new Error(errorMessage(error.value));
+    return data as { success: boolean };
+  },
+
   resendOtp: async (input: ResendOtpInput) => {
     const { data, error } = await client.api.auth["resend-otp"].post(input);
     if (error) throw new Error(errorMessage(error.value));

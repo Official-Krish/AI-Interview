@@ -21,6 +21,10 @@ import { caseStudyRoutes } from "./routes/case-study";
 import { discussionRoutes } from "./routes/discussion";
 import { analysisRoutes } from "./routes/analysis";
 import { globalRateLimit } from "./middleware/rateLimit";
+import { securityHeaders } from "./middleware/security";
+import { bodyLimit } from "./middleware/bodyLimit";
+import { csrfProtection } from "./middleware/csrf";
+import { toErrorResponse } from "./lib/errors";
 
 const JWT_SECRET = Bun.env.JWT_SECRET;
 if (!JWT_SECRET) {
@@ -87,6 +91,9 @@ const SITEMAP_XML = `<?xml version="1.0" encoding="UTF-8"?>
 `;
 
 export const app = new Elysia()
+  .use(securityHeaders)
+  .use(csrfProtection)
+  .use(bodyLimit)
   .get("/health", () => ({ status: "ok", timestamp: new Date().toISOString() }))
   .get("/ready", () => ({ status: "ok", timestamp: new Date().toISOString() }))
   .get(
@@ -121,7 +128,7 @@ export const app = new Elysia()
   .use(
     jwt({
       secret: JWT_SECRET,
-      exp: "7d",
+      exp: "15m",
     }),
   )
   .onError(({ error, set }) => {
@@ -129,8 +136,14 @@ export const app = new Elysia()
       set.status = 401;
       return {
         error: "You are logged out. Please sign in to continue.",
+        code: "UNAUTHORIZED",
       };
     }
+    const response = toErrorResponse(error);
+    if (response.code === "INTERNAL_ERROR") {
+      set.status = 500;
+    }
+    return response;
   })
   .group("/api", (app) =>
     app

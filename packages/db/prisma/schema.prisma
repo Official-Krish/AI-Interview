@@ -32,6 +32,7 @@ model User {
   dsaSessions           DsaSession[]
   feedbacks             Feedback[]
   seenSdQuestions       SdQuestionSeenByUser[]
+  refreshTokens         RefreshToken[]
 }
 
 model CandidateProfile {
@@ -246,12 +247,29 @@ model InterviewSummary {
   interview         InterviewSession @relation(fields: [interviewId], references: [id])
 }
 
+model RefreshToken {
+  id         String    @id @default(cuid())
+  tokenHash  String
+  userId     String
+  familyId   String
+  deviceInfo String?
+  expiresAt  DateTime
+  createdAt  DateTime  @default(now())
+  revokedAt  DateTime?
+
+  user       User      @relation(fields: [userId], references: [id])
+
+  @@unique([tokenHash])
+  @@index([userId, familyId])
+  @@index([userId])
+}
+
 model Feedback {
   id        String   @id @default(cuid())
   userId    String
   subject   String
   rating    Int
-  category  String   @default("General")
+  category   String   @default("General")
   message   String   @db.Text
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id])

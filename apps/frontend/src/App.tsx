@@ -5,7 +5,7 @@ import {
   createBrowserRouter,
   Navigate,
 } from "react-router-dom";
-import { Toaster } from "react-hot-toast";
+import { Toaster, toast } from "react-hot-toast";
 import { motion } from "motion/react";
 import { useSession } from "./lib/auth";
 import { ThemeProvider } from "./lib/theme";
@@ -207,6 +207,16 @@ export function App() {
   );
 
   const [isReady, setIsReady] = useState(false);
+
+  useEffect(() => {
+    const handleExpired = () => {
+      queryClient.setQueryData(["session"], { user: null });
+      toast.error("Session expired. Please log in again.");
+      window.location.href = "/login";
+    };
+    window.addEventListener("auth:expired", handleExpired);
+    return () => window.removeEventListener("auth:expired", handleExpired);
+  }, []);
 
   useEffect(() => {
     let isMounted = true;

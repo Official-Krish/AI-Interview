@@ -9,6 +9,19 @@ import {
   sendWelcomeEmail,
   sendResetOtpEmail,
 } from "../lib/email";
+import {
+  signAccessToken,
+  signRefreshToken,
+  verifyRefreshToken,
+  rotateRefreshToken,
+  revokeAllUserTokens,
+} from "../lib/tokens";
+import {
+  recordFailedAttempt,
+  isAccountLocked,
+  getLockoutRemaining,
+  clearFailedAttempts,
+} from "../lib/loginAttempt";
 
 const SECRET = Bun.env.JWT_SECRET;
 if (!SECRET) {
@@ -37,8 +50,41 @@ async function checkOtpRateLimit(email: string): Promise<{
   return { allowed: true, retryAfter: 0 };
 }
 
+function setTokenCookies(
+  cookie: Record<string, unknown>,
+  accessToken: string,
+  refreshToken?: string,
+) {
+  const set = (name: string, value: string, opts: Record<string, unknown>) => {
+    const c = cookie[name] as
+      | { set: (o: Record<string, unknown>) => void }
+      | undefined;
+    c?.set(opts);
+  };
+
+  set("access_token", accessToken, {
+    value: accessToken,
+    httpOnly: true,
+    secure: true,
+    maxAge: 15 * 60,
+    path: "/",
+    sameSite: "lax",
+  });
+
+  if (refreshToken) {
+    set("refresh_token", refreshToken, {
+      value: refreshToken,
+      httpOnly: true,
+      secure: true,
+      maxAge: 7 * 86400,
+      path: "/api/auth/refresh",
+      sameSite: "strict",
+    });
+  }
+}
+
 export const authRoutes = new Elysia({ prefix: "/auth" })
-  .use(jwt({ secret: SECRET, exp: "7d" }))
+  .use(jwt({ secret: SECRET, exp: "15m" }))
   .guard({}, (g) =>
     g.use(strictRateLimit).post(
       "/signup",
@@ -115,7 +161,7 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
       .use(authRateLimit)
       .post(
         "/verify-otp",
-        async ({ body, cookie, jwt, set }) => {
+        async ({ body, cookie, set }) => {
           const user = await prisma.user.findUnique({
             where: { email: body.email },
             select: {
@@ -163,20 +209,9 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
             },
           });
 
-          const token = await jwt.sign({
-            id: user.id,
-            email: user.email,
-            name: user.name,
-            role: user.role,
-            roleVersion: user.roleVersion,
-          });
-          cookie.token!.set({
-            value: token,
-            httpOnly: true,
-            maxAge: 7 * 86400,
-            path: "/",
-            sameSite: "lax",
-          });
+          const accessToken = await signAccessToken(user);
+          const refresh = await signRefreshToken(user);
+          setTokenCookies(cookie, accessToken, refresh.token);
 
           sendWelcomeEmail(user.email, user.name ?? "there").catch(() => {});
 
@@ -253,7 +288,17 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
       )
       .post(
         "/login",
-        async ({ body, cookie, jwt, set }) => {
+        async ({ body, cookie, set }) => {
+          const locked = await isAccountLocked(body.email);
+          if (locked) {
+            const remaining = await getLockoutRemaining(body.email);
+            set.status = 429;
+            return {
+              error: `Account temporarily locked. Try again in ${Math.ceil(remaining / 60)} minutes.`,
+              code: "ACCOUNT_LOCKED",
+            };
+          }
+
           const user = await prisma.user.findUnique({
             where: { email: body.email },
             select: {
@@ -273,6 +318,7 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
 
           const valid = await Bun.password.verify(body.password, user.password);
           if (!valid) {
+            await recordFailedAttempt(body.email);
             set.status = 401;
             return { error: "Invalid email or password" };
           }
@@ -286,20 +332,11 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
             };
           }
 
-          const token = await jwt.sign({
-            id: user.id,
-            email: user.email,
-            name: user.name,
-            role: user.role,
-            roleVersion: user.roleVersion,
-          });
-          cookie.token!.set({
-            value: token,
-            httpOnly: true,
-            maxAge: 7 * 86400,
-            path: "/",
-            sameSite: "lax",
-          });
+          await clearFailedAttempts(body.email);
+
+          const accessToken = await signAccessToken(user);
+          const refresh = await signRefreshToken(user);
+          setTokenCookies(cookie, accessToken, refresh.token);
 
           return {
             user: {
@@ -317,10 +354,6 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
           }),
         },
       )
-      .post("/logout", ({ cookie }) => {
-        cookie.token!.remove();
-        return { success: true };
-      })
       .post(
         "/forgot-password",
         async ({ body, set }) => {
@@ -436,8 +469,57 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
         },
       ),
   )
-  .post("/logout", ({ cookie }) => {
-    cookie.token!.remove();
+  .post("/refresh", async ({ cookie, set }) => {
+    const refreshCookie = cookie.refresh_token as
+      | { value?: string }
+      | undefined;
+    const token = refreshCookie?.value;
+    if (!token) {
+      set.status = 401;
+      return { error: "No refresh token", code: "NO_REFRESH_TOKEN" };
+    }
+
+    const result = await rotateRefreshToken(token);
+    if (!result) {
+      set.status = 401;
+      return {
+        error: "Invalid or expired refresh token",
+        code: "INVALID_REFRESH_TOKEN",
+      };
+    }
+
+    setTokenCookies(cookie, result.accessToken, result.refreshToken);
+
+    return { success: true };
+  })
+  .post("/revoke-all", async ({ cookie, set }) => {
+    const refreshCookie = cookie.refresh_token as
+      | { value?: string }
+      | undefined;
+    const token = refreshCookie?.value;
+    if (token) {
+      const payload = await verifyRefreshToken(token);
+      if (payload) {
+        await revokeAllUserTokens(payload.id);
+      }
+    }
+    cookie.access_token?.remove();
+    cookie.refresh_token?.remove();
+    return { success: true };
+  })
+  .post("/logout", async ({ cookie }) => {
+    const refreshCookie = cookie.refresh_token as
+      | { value?: string }
+      | undefined;
+    if (refreshCookie?.value) {
+      const payload = await verifyRefreshToken(refreshCookie.value);
+      if (payload) {
+        await revokeAllUserTokens(payload.id);
+      }
+    }
+    cookie.access_token?.remove();
+    cookie.refresh_token?.remove();
+    cookie.token?.remove();
     return { success: true };
   })
   .guard({}, (app) =>
