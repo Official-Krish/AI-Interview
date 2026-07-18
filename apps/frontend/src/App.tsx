@@ -211,6 +211,7 @@ export function App() {
   useEffect(() => {
     const handleExpired = () => {
       queryClient.setQueryData(["session"], { user: null });
+      if (window.location.pathname === "/login") return;
       toast.error("Session expired. Please log in again.");
       window.location.href = "/login";
     };

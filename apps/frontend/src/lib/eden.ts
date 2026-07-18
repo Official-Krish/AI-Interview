@@ -30,10 +30,11 @@ async function authFetch(
 ): Promise<Response> {
   const url = typeof input === "string" ? input : (input as Request).url;
   const isRefresh = url.includes("/api/auth/refresh");
+  const isSessionCheck = url.includes("/api/auth/me");
 
   const res = await fetch(input, { ...init, credentials: "include" });
 
-  if (res.status === 401 && !isRefresh) {
+  if (res.status === 401 && !isRefresh && !isSessionCheck) {
     if (!refreshPromise) {
       refreshPromise = doRefresh();
     }

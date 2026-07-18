@@ -476,12 +476,15 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
       | undefined;
     const token = refreshCookie?.value;
     if (!token) {
+      cookie.access_token?.remove();
       set.status = 401;
       return { error: "No refresh token", code: "NO_REFRESH_TOKEN" };
     }
 
     const result = await rotateRefreshToken(token);
     if (!result) {
+      cookie.access_token?.remove();
+      cookie.refresh_token?.remove();
       set.status = 401;
       return {
         error: "Invalid or expired refresh token",

@@ -163,21 +163,31 @@ export const interviewRoutes = new Elysia({ prefix: "/interview" }).guard(
         cached(
           60,
           async ({ user, query }: any) => {
+            const take = Math.min(Number(query.take) || 20, 100);
+            const cursor = query.cursor;
+
             const interviews = await prisma.interviewSession.findMany({
               where: { userId: user.id },
-              orderBy: { createdAt: "desc" },
-              skip: Number(query.skip) || 0,
-              take: Math.min(Number(query.take) || 20, 100),
+              orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+              take: take + 1,
+              ...(cursor
+                ? { cursor: { id: cursor }, skip: 1 }
+                : { skip: Number(query.skip) || 0 }),
               include: {
                 _count: { select: { turns: true } },
                 resume: { select: { id: true, version: true } },
                 summary: true,
               },
             });
-            return { interviews };
+
+            const hasMore = interviews.length > take;
+            const results = hasMore ? interviews.slice(0, take) : interviews;
+            const nextCursor = hasMore ? results[results.length - 1]!.id : null;
+
+            return { interviews: results, nextCursor };
           },
           ({ user, query }: any) =>
-            `interviews:${user.id}:${query.skip ?? "0"}:${query.take ?? "20"}`,
+            `interviews:${user.id}:${query.cursor ?? query.skip ?? "0"}:${query.take ?? "20"}`,
         ),
       )
       .get("/:id", async ({ params: { id }, user, set }) => {

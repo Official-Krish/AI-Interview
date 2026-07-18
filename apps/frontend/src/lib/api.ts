@@ -1,4 +1,5 @@
 import { client, BASE_URL } from "./eden";
+import type { InterviewTurn } from "@evalio/shared";
 import type {
   User,
   InterviewSession,
@@ -97,18 +98,36 @@ export const api = {
     return data as { resume: Resume };
   },
 
-  listInterviews: async (skip = 0, take = 20) => {
+  listInterviews: async (skip = 0, take = 20, cursor?: string) => {
     const { data, error } = await client.api.interview.get({
-      query: { skip: String(skip), take: String(take) },
+      query: {
+        skip: String(skip),
+        take: String(take),
+        ...(cursor ? { cursor } : {}),
+      },
     });
     if (error) throw new Error(errorMessage(error.value));
-    return data as unknown as { interviews: InterviewSession[] };
+    return data as unknown as {
+      interviews: InterviewSession[];
+      nextCursor: string | null;
+    };
   },
 
   getInterview: async (id: string) => {
     const { data, error } = await client.api.interview({ id }).get();
     if (error) throw new Error(errorMessage(error.value));
     return data as unknown as { interview: InterviewSession };
+  },
+
+  listTurns: async (id: string, cursor?: string, take = 50) => {
+    const { data, error } = await client.api.interview({ id }).turns.get({
+      query: { cursor, take: String(take) },
+    });
+    if (error) throw new Error(errorMessage(error.value));
+    return data as unknown as {
+      turns: InterviewTurn[];
+      nextCursor: string | null;
+    };
   },
 
   createInterview: async (input: CreateInterviewInput) => {
