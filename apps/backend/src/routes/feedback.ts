@@ -1,6 +1,7 @@
 import { Elysia, t } from "elysia";
 import { prisma } from "../lib/prisma";
 import { authGuard } from "../middleware/auth";
+import { withIdempotency } from "../middleware/idempotency";
 import { sendFeedbackThankYouEmail } from "../lib/email";
 
 export const feedbackRoutes = new Elysia({ prefix: "/feedback" }).guard(
@@ -10,7 +11,7 @@ export const feedbackRoutes = new Elysia({ prefix: "/feedback" }).guard(
       .use(authGuard)
       .post(
         "/submit",
-        async ({ user, body }) => {
+        withIdempotency(async ({ user, body }: any) => {
           const feedback = await prisma.feedback.create({
             data: {
               userId: user.id,
@@ -28,7 +29,7 @@ export const feedbackRoutes = new Elysia({ prefix: "/feedback" }).guard(
           }
 
           return { feedback };
-        },
+        }),
         {
           body: t.Object({
             subject: t.String({ minLength: 1 }),

@@ -1,6 +1,7 @@
 import { Elysia, t } from "elysia";
 import { sendContactEmail } from "../lib/email";
 import { redisSubscriber } from "../lib/redis";
+import { withIdempotency } from "../middleware/idempotency";
 
 const CONTACT_IP_PREFIX = "contact_ip:";
 const CONTACT_EMAIL_PREFIX = "contact_email:";
@@ -8,7 +9,7 @@ const CONTACT_WINDOW = 3600;
 
 export const contactRoutes = new Elysia({ prefix: "/contact" }).post(
   "/send",
-  async ({ body, set, request }) => {
+  withIdempotency(async ({ body, set, request }: any) => {
     const ip =
       request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
       "unknown";
@@ -51,7 +52,7 @@ export const contactRoutes = new Elysia({ prefix: "/contact" }).post(
       success: true,
       message: "Message sent. We'll get back to you soon.",
     };
-  },
+  }),
   {
     body: t.Object({
       name: t.String({ minLength: 1 }),

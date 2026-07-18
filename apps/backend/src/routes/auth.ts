@@ -23,6 +23,7 @@ import {
   clearFailedAttempts,
 } from "../lib/loginAttempt";
 import { cached } from "../lib/cacheMiddleware";
+import { withIdempotency } from "../middleware/idempotency";
 
 const SECRET = Bun.env.JWT_SECRET;
 if (!SECRET) {
@@ -89,7 +90,7 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
   .guard({}, (g) =>
     g.use(strictRateLimit).post(
       "/signup",
-      async ({ body, set }) => {
+      withIdempotency(async ({ body, set }: any) => {
         if (!PASSWORD_REGEX.test(body.password)) {
           set.status = 400;
           return {
@@ -147,7 +148,7 @@ export const authRoutes = new Elysia({ prefix: "/auth" })
           message:
             "Account created. Please verify your email using the OTP sent.",
         };
-      },
+      }),
       {
         body: t.Object({
           email: t.String({ format: "email" }),

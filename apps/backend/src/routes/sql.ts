@@ -2,6 +2,7 @@ import { Elysia, t } from "elysia";
 import { prisma } from "../lib/prisma";
 import { authGuard } from "../middleware/auth";
 import { GoogleGenAI } from "@google/genai";
+import { withIdempotency } from "../middleware/idempotency";
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY!,
@@ -23,7 +24,7 @@ export const sqlRoutes = new Elysia({ prefix: "/sql" })
     app
       .post(
         "/start",
-        async ({ user, body, set }) => {
+        withIdempotency(async ({ user, body, set }: any) => {
           const { interviewId } = body;
 
           const interview = await prisma.interviewSession.findUnique({
@@ -117,7 +118,7 @@ Make questions progressively harder — start with EASY, build to HARD by the en
           });
 
           return { session };
-        },
+        }),
         {
           body: t.Object({
             interviewId: t.String(),

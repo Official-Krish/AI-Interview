@@ -2,6 +2,7 @@ import { Elysia, t } from "elysia";
 import { prisma } from "../lib/prisma";
 import { authGuard } from "../middleware/auth";
 import { GoogleGenAI } from "@google/genai";
+import { withIdempotency } from "../middleware/idempotency";
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY!,
@@ -12,7 +13,7 @@ export const quantRoutes = new Elysia({ prefix: "/quant" })
   .guard({}, (app) =>
     app.post(
       "/start",
-      async ({ user, body, set }) => {
+      withIdempotency(async ({ user, body, set }: any) => {
         const { interviewId } = body;
 
         const interview = await prisma.interviewSession.findUnique({
@@ -175,7 +176,7 @@ Example:
           set.status = 500;
           return { error: "Failed to create quant session" };
         }
-      },
+      }),
       {
         body: t.Object({
           interviewId: t.String(),

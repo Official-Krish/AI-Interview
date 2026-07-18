@@ -6,6 +6,7 @@ import {
   getOrCreateQuestion,
 } from "../services/questionPool";
 import { DSA_PHASES } from "../prompt/dsa";
+import { withIdempotency } from "../middleware/idempotency";
 
 export const dsaRoutes = new Elysia({ prefix: "/dsa" })
   .use(authGuard)
@@ -13,7 +14,7 @@ export const dsaRoutes = new Elysia({ prefix: "/dsa" })
     app
       .post(
         "/start",
-        async ({ user, body, set }) => {
+        withIdempotency(async ({ user, body, set }: any) => {
           const { interviewId, questionCount: bodyQc } = body;
 
           // Determine default question count from user plan
@@ -121,7 +122,7 @@ export const dsaRoutes = new Elysia({ prefix: "/dsa" })
           });
 
           return { session };
-        },
+        }),
         {
           body: t.Object({
             interviewId: t.String(),
@@ -132,7 +133,7 @@ export const dsaRoutes = new Elysia({ prefix: "/dsa" })
       )
       .post(
         "/submit",
-        async ({ user, body, set }) => {
+        withIdempotency(async ({ user, body, set }: any) => {
           const { sessionId, index, code, phase, timeTaken } = body;
 
           const session = await prisma.dsaSession.findUnique({
@@ -219,7 +220,7 @@ export const dsaRoutes = new Elysia({ prefix: "/dsa" })
           });
 
           return { attempt: updated };
-        },
+        }),
         {
           body: t.Object({
             sessionId: t.String(),
@@ -245,7 +246,7 @@ export const dsaRoutes = new Elysia({ prefix: "/dsa" })
       })
       .post(
         "/evaluate",
-        async ({ user, body, set }) => {
+        withIdempotency(async ({ user, body, set }: any) => {
           const { sessionId } = body;
 
           const session = await prisma.dsaSession.findUnique({
@@ -263,7 +264,7 @@ export const dsaRoutes = new Elysia({ prefix: "/dsa" })
           });
 
           return { status: "ok" };
-        },
+        }),
         {
           body: t.Object({
             sessionId: t.String(),

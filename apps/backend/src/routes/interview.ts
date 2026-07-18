@@ -5,6 +5,7 @@ import { generateResumeUrl } from "../lib/s3";
 import { extractUsername, parseGithubProfile } from "../utils/githubParser";
 import { strictRateLimit } from "../middleware/rateLimit";
 import { cached } from "../lib/cacheMiddleware";
+import { withIdempotency } from "../middleware/idempotency";
 import type { InterviewStyle, InterviewDepth } from "@evalio/db";
 
 export const interviewRoutes = new Elysia({ prefix: "/interview" }).guard(
@@ -15,7 +16,7 @@ export const interviewRoutes = new Elysia({ prefix: "/interview" }).guard(
       .guard({}, (g) =>
         g.use(strictRateLimit).post(
           "/create",
-          async ({ user, body, set }) => {
+          withIdempotency(async ({ user, body, set }: any) => {
             // Rate limit: FREE users get 3 interviews / 7 days, PRO gets 6 / 7 days
             if (user.role !== "ADMIN") {
               const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
@@ -117,7 +118,7 @@ export const interviewRoutes = new Elysia({ prefix: "/interview" }).guard(
             });
 
             return { interview };
-          },
+          }),
           {
             body: t.Object({
               position: t.Optional(t.String()),

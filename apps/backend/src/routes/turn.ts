@@ -1,6 +1,7 @@
 import { Elysia, t } from "elysia";
 import { prisma } from "../lib/prisma";
 import { authGuard } from "../middleware/auth";
+import { withIdempotency } from "../middleware/idempotency";
 
 async function verifyInterview(
   interviewId: string,
@@ -22,7 +23,7 @@ export const turnRoutes = new Elysia().guard({}, (app) =>
     .use(authGuard)
     .post(
       "/interview/:id/turns",
-      async ({ params: { id }, user, body, set }) => {
+      withIdempotency(async ({ params: { id }, user, body, set }: any) => {
         if (!(await verifyInterview(id, user.id, set))) return;
 
         const maxOrder = await prisma.interviewTurn.findFirst({
@@ -45,7 +46,7 @@ export const turnRoutes = new Elysia().guard({}, (app) =>
           },
         });
         return { turn };
-      },
+      }),
       {
         body: t.Object({
           questionText: t.String(),

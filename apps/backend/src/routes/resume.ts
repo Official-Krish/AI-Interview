@@ -5,6 +5,7 @@ import { strictRateLimit, authRateLimit } from "../middleware/rateLimit";
 import { uploadResumeToS3, generateResumeUrl } from "../lib/s3";
 import { parseResume, validateResumeContent } from "../utils/ResumeParser";
 import { randomUUID } from "node:crypto";
+import { withIdempotency } from "../middleware/idempotency";
 
 const ALLOWED_EXTENSIONS = ["pdf", "docx", "txt"];
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -41,7 +42,7 @@ export const resumeRoutes = new Elysia({ prefix: "/resumes" }).guard(
       .guard({}, (g) =>
         g.use(strictRateLimit).post(
           "/upload",
-          async ({ user, body, set }) => {
+          withIdempotency(async ({ user, body, set }: any) => {
             const file = body.file;
             if (!file || !file.name) {
               set.status = 400;
@@ -117,7 +118,7 @@ export const resumeRoutes = new Elysia({ prefix: "/resumes" }).guard(
                 url: generateResumeUrl(result.key),
               },
             };
-          },
+          }),
           {
             body: t.Object({
               file: t.File(),
