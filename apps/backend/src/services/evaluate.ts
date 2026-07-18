@@ -1,4 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
+import type { PrismaClient } from "@evalio/db";
 import { prisma } from "../lib/prisma";
 import { updateCandidateProfile } from "./profile";
 import { aggregateFailurePatterns } from "./failurePatterns";
@@ -7,6 +8,8 @@ import type { LiveAssessment } from "../ws/tools";
 import type { InterviewerRuntime } from "../ws/runtime";
 import type { DeterministicState } from "../ws/deterministic";
 import { getMomentum, getScoreConfidence } from "../ws/deterministic";
+import { NotFoundError, AppError } from "../lib/errors";
+import { SYSTEM_DESIGN_EVALUATION_SCHEMA } from "../prompt/evaluate";
 
 function buildLiveObservationsBlock(
   liveAssessments?: LiveAssessment[],
@@ -938,93 +941,6 @@ Provide specific, actionable feedback for each question. Return ONLY valid JSON 
 
 // ── System Design Evaluation ──
 
-const SYSTEM_DESIGN_EVALUATION_SCHEMA = {
-  type: "object",
-  properties: {
-    overallScore: {
-      type: "number",
-      description: "Overall system design score 0-100",
-    },
-    dimensions: {
-      type: "object",
-      properties: {
-        requirementsGathering: { type: "number", description: "0-100" },
-        estimation: { type: "number", description: "0-100" },
-        highLevelArchitecture: { type: "number", description: "0-100" },
-        dataModel: { type: "number", description: "0-100" },
-        scalability: { type: "number", description: "0-100" },
-        faultTolerance: { type: "number", description: "0-100" },
-        tradeoffsAndDepth: { type: "number", description: "0-100" },
-      },
-      required: [
-        "requirementsGathering",
-        "estimation",
-        "highLevelArchitecture",
-        "dataModel",
-        "scalability",
-        "faultTolerance",
-        "tradeoffsAndDepth",
-      ],
-    },
-    canvasFeedback: {
-      type: "object",
-      properties: {
-        missingComponents: {
-          type: "array",
-          items: { type: "string" },
-        },
-        strongDecisions: {
-          type: "array",
-          items: { type: "string" },
-        },
-        weakDecisions: {
-          type: "array",
-          items: { type: "string" },
-        },
-        overallDiagramQuality: { type: "string" },
-      },
-      required: [
-        "missingComponents",
-        "strongDecisions",
-        "weakDecisions",
-        "overallDiagramQuality",
-      ],
-    },
-    graphHistoryInsights: {
-      type: "object",
-      properties: {
-        architectureEvolution: { type: "string" },
-        patternStrengths: {
-          type: "array",
-          items: { type: "string" },
-        },
-        patternWeaknesses: {
-          type: "array",
-          items: { type: "string" },
-        },
-      },
-      required: [
-        "architectureEvolution",
-        "patternStrengths",
-        "patternWeaknesses",
-      ],
-    },
-    summary: { type: "string" },
-    improvements: {
-      type: "array",
-      items: { type: "string" },
-    },
-  },
-  required: [
-    "overallScore",
-    "dimensions",
-    "canvasFeedback",
-    "graphHistoryInsights",
-    "summary",
-    "improvements",
-  ],
-} as const;
-
 interface SystemDesignEvaluationResult {
   overallScore: number;
   dimensions: {
@@ -1241,5 +1157,64 @@ Return ONLY valid JSON matching the schema.`;
     ]);
   } catch (err) {
     console.error(`[sd-evaluate] error for interview ${interviewId}:`, err);
+  }
+}
+
+// ── EvaluateService (DI class for route handlers) ──
+
+export class EvaluateService {
+  constructor(private prisma: PrismaClient) {}
+
+  async getStatus(userId: string, interviewId: string) {
+    const interview = await this.prisma.interviewSession.findUnique({
+      where: { id: interviewId },
+      select: {
+        userId: true,
+        status: true,
+        overallScore: true,
+        communicationScore: true,
+        technicalScore: true,
+        problemSolvingScore: true,
+        summary: { select: { id: true } },
+      },
+    });
+    if (!interview || interview.userId !== userId)
+      throw new NotFoundError("Interview not found");
+
+    if (interview.status === "FAILED") return { status: "failed" as const };
+
+    const scored = interview.overallScore != null && interview.summary != null;
+
+    return {
+      status: scored ? ("completed" as const) : ("pending" as const),
+      scores: scored
+        ? {
+            overall: interview.overallScore,
+            communication: interview.communicationScore,
+            technical: interview.technicalScore,
+            problemSolving: interview.problemSolvingScore,
+          }
+        : null,
+    };
+  }
+
+  async evaluate(userId: string, interviewId: string) {
+    const interview = await this.prisma.interviewSession.findUnique({
+      where: { id: interviewId },
+      select: { userId: true },
+    });
+    if (!interview || interview.userId !== userId)
+      throw new NotFoundError("Interview not found");
+
+    try {
+      return await evaluateInterview(interviewId);
+    } catch (err) {
+      console.error("[evaluate] failed:", err);
+      await this.prisma.interviewSession.update({
+        where: { id: interviewId },
+        data: { status: "FAILED" },
+      });
+      throw new AppError("Evaluation failed. Please try again.", 500);
+    }
   }
 }

@@ -1,12 +1,10 @@
 import { Elysia, t } from "elysia";
-import { prisma } from "../lib/prisma";
 import { authGuard } from "../middleware/auth";
 import { generateResumeUrl } from "../lib/s3";
-import { extractUsername, parseGithubProfile } from "../utils/githubParser";
 import { strictRateLimit } from "../middleware/rateLimit";
 import { cached } from "../lib/cacheMiddleware";
 import { withIdempotency } from "../middleware/idempotency";
-import type { InterviewStyle, InterviewDepth } from "@evalio/db";
+import { container } from "../lib/container";
 
 export const interviewRoutes = new Elysia({ prefix: "/interview" }).guard(
   {},
@@ -16,108 +14,21 @@ export const interviewRoutes = new Elysia({ prefix: "/interview" }).guard(
       .guard({}, (g) =>
         g.use(strictRateLimit).post(
           "/create",
-          withIdempotency(async ({ user, body, set }: any) => {
-            // Rate limit: FREE users get 3 interviews / 7 days, PRO gets 6 / 7 days
-            if (user.role !== "ADMIN") {
-              const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-              const recentCount = await prisma.interviewSession.count({
-                where: {
-                  userId: user.id,
-                  createdAt: { gte: since },
-                },
-              });
-              const role: string = user.role;
-              const limit = role === "PRO" ? 6 : 3;
-              if (recentCount >= limit) {
-                set.status = 429;
-                return {
-                  error: `Rate limit reached. ${
-                    role === "PRO" ? "Pro" : "Free"
-                  } users can only create ${limit} interviews per 7 days.`,
-                };
-              }
-            }
-
-            const latestResume = await prisma.resume.findFirst({
-              where: { userId: user.id },
-              orderBy: { version: "desc" },
+          withIdempotency(async ({ user, body }: any) => {
+            return await container.interview.create(user.id, user.role, {
+              position: body.position,
+              resumeId: body.resumeId,
+              githubUrl: body.githubUrl,
+              jobDescription: body.jobDescription,
+              companyId: body.companyId,
+              companyName: body.companyName,
+              roleTitle: body.roleTitle,
+              roleCategory: body.roleCategory,
+              interviewRound: body.interviewRound,
+              interviewStyle: body.interviewStyle,
+              interviewDepth: body.interviewDepth,
+              mode: body.mode,
             });
-            if (!latestResume) {
-              set.status = 400;
-              return { error: "Upload a resume before creating an interview" };
-            }
-
-            const resumeId = body.resumeId ?? latestResume.id;
-            const resume = await prisma.resume.findFirst({
-              where: { id: resumeId, userId: user.id },
-            });
-            if (!resume) {
-              set.status = 400;
-              return { error: "Invalid resume selected" };
-            }
-
-            if (body.githubUrl) {
-              const username = extractUsername(body.githubUrl);
-              if (username) {
-                try {
-                  const parsed = await parseGithubProfile(username);
-                  await prisma.githubProfile.upsert({
-                    where: { userId: user.id },
-                    create: {
-                      userId: user.id,
-                      username: parsed.username,
-                      summary: parsed.summary,
-                      languages: parsed.languages,
-                      projects: parsed.projects,
-                    },
-                    update: {
-                      username: parsed.username,
-                      summary: parsed.summary,
-                      languages: parsed.languages,
-                      projects: parsed.projects,
-                      analyzedAt: new Date(),
-                    },
-                  });
-                  await prisma.candidateProfile.update({
-                    where: { userId: user.id },
-                    data: { githubUsername: parsed.username },
-                  });
-                } catch {
-                  // GitHub fetch failed, continue without profile
-                }
-              }
-            }
-
-            const interview = await prisma.interviewSession.create({
-              data: {
-                userId: user.id,
-                status: "CREATED",
-                mode:
-                  (body.mode as
-                    | "VOICE"
-                    | "LIVE_CODE"
-                    | "LIVE_CANVAS"
-                    | "DISCUSSION") ?? "VOICE",
-                position: body.position,
-                jobDescription: body.jobDescription,
-                resumeId: resume.id,
-                ...(body.companyId && { companyId: body.companyId }),
-                ...(body.companyName && { companyName: body.companyName }),
-                ...(body.roleTitle && { roleTitle: body.roleTitle }),
-                ...(body.roleCategory && { roleCategory: body.roleCategory }),
-                ...(body.interviewRound && {
-                  interviewRound: body.interviewRound,
-                }),
-                ...(body.interviewStyle && {
-                  interviewStyle: body.interviewStyle as InterviewStyle,
-                }),
-                ...(body.interviewDepth && {
-                  interviewDepth: body.interviewDepth as InterviewDepth,
-                }),
-              },
-            });
-
-            return { interview };
           }),
           {
             body: t.Object({
@@ -164,113 +75,29 @@ export const interviewRoutes = new Elysia({ prefix: "/interview" }).guard(
         cached(
           60,
           async ({ user, query }: any) => {
-            const take = Math.min(Number(query.take) || 20, 100);
-            const cursor = query.cursor;
-
-            const interviews = await prisma.interviewSession.findMany({
-              where: { userId: user.id },
-              orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-              take: take + 1,
-              ...(cursor
-                ? { cursor: { id: cursor }, skip: 1 }
-                : { skip: Number(query.skip) || 0 }),
-              include: {
-                _count: { select: { turns: true } },
-                resume: { select: { id: true, version: true } },
-                summary: true,
-              },
-            });
-
-            const hasMore = interviews.length > take;
-            const results = hasMore ? interviews.slice(0, take) : interviews;
-            const nextCursor = hasMore ? results[results.length - 1]!.id : null;
-
-            return { interviews: results, nextCursor };
+            return await container.interview.list(
+              user.id,
+              query.cursor,
+              Number(query.take) || 20,
+              Number(query.skip) || 0,
+            );
           },
           ({ user, query }: any) =>
             `interviews:${user.id}:${query.cursor ?? query.skip ?? "0"}:${query.take ?? "20"}`,
         ),
       )
-      .get("/:id", async ({ params: { id }, user, set }) => {
-        const interview = await prisma.interviewSession.findUnique({
-          where: { id },
-          include: {
-            turns: { orderBy: { createdAt: "asc" } },
-            summary: true,
-            resume: { select: { id: true, version: true, objectKey: true } },
-            dsaSession: {
-              include: {
-                problems: { orderBy: { index: "asc" } },
-              },
-            },
-          },
-        });
-        if (!interview || interview.userId !== user.id) {
-          set.status = 404;
-          return { error: "Interview not found" };
-        }
-        const mappedResume = interview.resume
-          ? {
-              ...interview.resume,
-              url: interview.resume.objectKey
-                ? generateResumeUrl(interview.resume.objectKey)
-                : null,
-            }
-          : null;
-
-        const scoredInterviews = await prisma.interviewSession.findMany({
-          where: {
-            userId: user.id,
-            status: "COMPLETED",
-            overallScore: { not: null },
-          },
-          orderBy: { createdAt: "desc" },
-          take: 5,
-          select: { overallScore: true },
-        });
-        const scores = scoredInterviews.map((i) => i.overallScore!).reverse();
-        const scoreTrendLast5: "improving" | "stable" | "declining" | null =
-          scores.length < 2
-            ? null
-            : scores[scores.length - 1]! > scores[0]! + 5
-              ? "improving"
-              : scores[scores.length - 1]! < scores[0]! - 5
-                ? "declining"
-                : "stable";
-
-        return {
-          interview: {
-            ...interview,
-            resume: mappedResume,
-            scoreTrendLast5,
-          },
-        };
+      .get("/:id", async ({ params: { id }, user }: any) => {
+        return await container.interview.get(id, user.id, generateResumeUrl);
       })
       .patch(
         "/:id",
-        async ({ params: { id }, user, body, set }) => {
-          const interview = await prisma.interviewSession.findUnique({
-            where: { id },
+        async ({ params: { id }, user, body }: any) => {
+          return await container.interview.update(id, user.id, {
+            status: body.status,
+            startedAt: body.startedAt,
+            endedAt: body.endedAt,
+            durationSeconds: body.durationSeconds,
           });
-          if (!interview || interview.userId !== user.id) {
-            set.status = 404;
-            return { error: "Interview not found" };
-          }
-
-          const updated = await prisma.interviewSession.update({
-            where: { id },
-            data: {
-              ...(body.status && { status: body.status }),
-              ...(body.startedAt !== undefined && {
-                startedAt: body.startedAt,
-              }),
-              ...(body.endedAt !== undefined && { endedAt: body.endedAt }),
-              ...(body.durationSeconds !== undefined && {
-                durationSeconds: body.durationSeconds,
-              }),
-            },
-          });
-          return { interview: updated };
         },
         {
           body: t.Object({

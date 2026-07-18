@@ -1,8 +1,10 @@
 import { prisma } from "../../lib/prisma";
 import { COMPANIES } from "@evalio/shared";
 import { getSdQuestion } from "../../routes/sd";
-import { getCanvasQuestion } from "../../routes/canvas";
-import { getDiscussionQuestion } from "../../routes/discussion";
+import {
+  getCanvasQuestion,
+  getDiscussionQuestion,
+} from "../../services/question";
 import { verifyWsToken, startInterview } from "../orchestrator";
 import { tryActivate, enqueue as queueEnqueue } from "../../lib/queue";
 import type { InterviewConnection } from "../session";

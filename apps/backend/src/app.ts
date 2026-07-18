@@ -24,7 +24,7 @@ import { globalRateLimit } from "./middleware/rateLimit";
 import { securityHeaders } from "./middleware/security";
 import { bodyLimit } from "./middleware/bodyLimit";
 import { csrfProtection } from "./middleware/csrf";
-import { toErrorResponse } from "./lib/errors";
+import { AppError, toErrorResponse } from "./lib/errors";
 
 const JWT_SECRET = Bun.env.JWT_SECRET;
 if (!JWT_SECRET) {
@@ -140,7 +140,9 @@ export const app = new Elysia()
       };
     }
     const response = toErrorResponse(error);
-    if (response.code === "INTERNAL_ERROR") {
+    if (error instanceof AppError) {
+      set.status = error.statusCode;
+    } else if (response.code === "INTERNAL_ERROR") {
       set.status = 500;
     }
     return response;

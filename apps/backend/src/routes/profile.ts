@@ -1,6 +1,6 @@
 import { Elysia } from "elysia";
-import { prisma } from "../lib/prisma";
 import { authGuard } from "../middleware/auth";
+import { container } from "../lib/container";
 import { cached } from "../lib/cacheMiddleware";
 
 export const profileRoutes = new Elysia({ prefix: "/profile" }).guard(
@@ -11,10 +11,7 @@ export const profileRoutes = new Elysia({ prefix: "/profile" }).guard(
       cached(
         300,
         async ({ user }: any) => {
-          const profile = await prisma.candidateSkillProfile.findUnique({
-            where: { userId: user.id },
-          });
-          return { profile };
+          return container.profile.getSkills(user.id);
         },
         ({ user }: any) => `profile:skills:${user.id}`,
       ),
