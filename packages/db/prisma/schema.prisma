@@ -32,6 +32,7 @@ model User {
   dsaSessions           DsaSession[]
   feedbacks             Feedback[]
   seenSdQuestions       SdQuestionSeenByUser[]
+  refreshTokens         RefreshToken[]
 }
 
 model CandidateProfile {
@@ -125,6 +126,9 @@ model InterviewSession {
   canvasGraphHistory  Json?              @default("[]")
   createdAt           DateTime           @default(now())
   user                User               @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([userId, status, createdAt])
 }
 
 model SystemDesignQuestion {
@@ -246,17 +250,51 @@ model InterviewSummary {
   interview         InterviewSession @relation(fields: [interviewId], references: [id])
 }
 
+model RefreshToken {
+  id         String    @id @default(cuid())
+  tokenHash  String
+  userId     String
+  familyId   String
+  deviceInfo String?
+  expiresAt  DateTime
+  createdAt  DateTime  @default(now())
+  revokedAt  DateTime?
+
+  user       User      @relation(fields: [userId], references: [id])
+
+  @@unique([tokenHash])
+  @@index([userId, familyId])
+  @@index([userId])
+}
+
 model Feedback {
   id        String   @id @default(cuid())
   userId    String
   subject   String
   rating    Int
-  category  String   @default("General")
+  category   String   @default("General")
   message   String   @db.Text
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id])
 
   @@index([userId])
+}
+
+model PendingEmail {
+  id         String   @id @default(cuid())
+  to         String
+  subject    String
+  html       String   @db.Text
+  type       String   @default("general")
+  attempts   Int      @default(0)
+  maxAttempts Int     @default(3)
+  lastError  String?
+  createdAt  DateTime @default(now())
+  nextRetryAt DateTime?
+  sentAt     DateTime?
+
+  @@index([nextRetryAt])
+  @@index([createdAt])
 }
 
 enum UserRole {

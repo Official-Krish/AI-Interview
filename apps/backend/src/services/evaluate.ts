@@ -1,4 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
+import type { PrismaClient } from "@evalio/db";
 import { prisma } from "../lib/prisma";
 import { updateCandidateProfile } from "./profile";
 import { aggregateFailurePatterns } from "./failurePatterns";
@@ -7,6 +8,8 @@ import type { LiveAssessment } from "../ws/tools";
 import type { InterviewerRuntime } from "../ws/runtime";
 import type { DeterministicState } from "../ws/deterministic";
 import { getMomentum, getScoreConfidence } from "../ws/deterministic";
+import { NotFoundError, AppError } from "../lib/errors";
+import { SYSTEM_DESIGN_EVALUATION_SCHEMA } from "../prompt/evaluate";
 
 function buildLiveObservationsBlock(
   liveAssessments?: LiveAssessment[],
@@ -512,8 +515,8 @@ async function writeEvaluation(
         )
       : null;
 
-  await Promise.all([
-    prisma.interviewSummary.upsert({
+  await prisma.$transaction(async (tx) => {
+    await tx.interviewSummary.upsert({
       where: { interviewId },
       create: {
         interviewId,
@@ -534,8 +537,9 @@ async function writeEvaluation(
         resumeStrengths: result.resumeStrengths,
         resumeWeaknesses: result.resumeWeaknesses,
       },
-    }),
-    prisma.interviewSession.update({
+    });
+
+    await tx.interviewSession.update({
       where: { id: interviewId },
       data: {
         overallScore: result.overallScore,
@@ -551,11 +555,12 @@ async function writeEvaluation(
         discrepancies: result.discrepancies as any,
         durationSeconds,
       },
-    }),
-    ...result.turns.map((t) => {
+    });
+
+    for (const t of result.turns) {
       const dbTurn = turns[t.orderNumber - 1];
-      if (!dbTurn) return Promise.resolve();
-      return prisma.interviewTurn.update({
+      if (!dbTurn) continue;
+      await tx.interviewTurn.update({
         where: { id: dbTurn.id },
         data: {
           score: t.score,
@@ -564,8 +569,8 @@ async function writeEvaluation(
           feedback: t.feedback,
         },
       });
-    }),
-  ]);
+    }
+  });
 
   // Trigger candidate profile update asynchronously
   try {
@@ -896,36 +901,32 @@ Provide specific, actionable feedback for each question. Return ONLY valid JSON 
       return;
     }
 
-    // Update each problem with score and feedback
-    await Promise.all(
-      result.attempts.map((a) =>
-        prisma.dsaProblem.updateMany({
+    // Update each problem, session, and interview atomically
+    await prisma.$transaction(async (tx) => {
+      for (const a of result.attempts) {
+        await tx.dsaProblem.updateMany({
           where: { dsaSessionId: dsaSession.id, index: a.index },
           data: {
             score: a.score,
             feedback: a.feedback,
             complexity: a.complexity,
           },
-        }),
-      ),
-    );
+        });
+      }
 
-    // Update session with overall score and mark as evaluated
-    await prisma.dsaSession.update({
-      where: { id: dsaSession.id },
-      data: {
-        status: "EVALUATED",
-      },
-    });
+      await tx.dsaSession.update({
+        where: { id: dsaSession.id },
+        data: { status: "EVALUATED" },
+      });
 
-    // Store overall scores on the interview session
-    await prisma.interviewSession.update({
-      where: { id: interviewId },
-      data: {
-        overallScore: result.overallScore,
-        technicalScore: result.overallScore,
-        problemSolvingScore: result.overallScore,
-      },
+      await tx.interviewSession.update({
+        where: { id: interviewId },
+        data: {
+          overallScore: result.overallScore,
+          technicalScore: result.overallScore,
+          problemSolvingScore: result.overallScore,
+        },
+      });
     });
 
     console.log(
@@ -937,93 +938,6 @@ Provide specific, actionable feedback for each question. Return ONLY valid JSON 
 }
 
 // ── System Design Evaluation ──
-
-const SYSTEM_DESIGN_EVALUATION_SCHEMA = {
-  type: "object",
-  properties: {
-    overallScore: {
-      type: "number",
-      description: "Overall system design score 0-100",
-    },
-    dimensions: {
-      type: "object",
-      properties: {
-        requirementsGathering: { type: "number", description: "0-100" },
-        estimation: { type: "number", description: "0-100" },
-        highLevelArchitecture: { type: "number", description: "0-100" },
-        dataModel: { type: "number", description: "0-100" },
-        scalability: { type: "number", description: "0-100" },
-        faultTolerance: { type: "number", description: "0-100" },
-        tradeoffsAndDepth: { type: "number", description: "0-100" },
-      },
-      required: [
-        "requirementsGathering",
-        "estimation",
-        "highLevelArchitecture",
-        "dataModel",
-        "scalability",
-        "faultTolerance",
-        "tradeoffsAndDepth",
-      ],
-    },
-    canvasFeedback: {
-      type: "object",
-      properties: {
-        missingComponents: {
-          type: "array",
-          items: { type: "string" },
-        },
-        strongDecisions: {
-          type: "array",
-          items: { type: "string" },
-        },
-        weakDecisions: {
-          type: "array",
-          items: { type: "string" },
-        },
-        overallDiagramQuality: { type: "string" },
-      },
-      required: [
-        "missingComponents",
-        "strongDecisions",
-        "weakDecisions",
-        "overallDiagramQuality",
-      ],
-    },
-    graphHistoryInsights: {
-      type: "object",
-      properties: {
-        architectureEvolution: { type: "string" },
-        patternStrengths: {
-          type: "array",
-          items: { type: "string" },
-        },
-        patternWeaknesses: {
-          type: "array",
-          items: { type: "string" },
-        },
-      },
-      required: [
-        "architectureEvolution",
-        "patternStrengths",
-        "patternWeaknesses",
-      ],
-    },
-    summary: { type: "string" },
-    improvements: {
-      type: "array",
-      items: { type: "string" },
-    },
-  },
-  required: [
-    "overallScore",
-    "dimensions",
-    "canvasFeedback",
-    "graphHistoryInsights",
-    "summary",
-    "improvements",
-  ],
-} as const;
 
 interface SystemDesignEvaluationResult {
   overallScore: number;
@@ -1241,5 +1155,64 @@ Return ONLY valid JSON matching the schema.`;
     ]);
   } catch (err) {
     console.error(`[sd-evaluate] error for interview ${interviewId}:`, err);
+  }
+}
+
+// ── EvaluateService (DI class for route handlers) ──
+
+export class EvaluateService {
+  constructor(private prisma: PrismaClient) {}
+
+  async getStatus(userId: string, interviewId: string) {
+    const interview = await this.prisma.interviewSession.findUnique({
+      where: { id: interviewId },
+      select: {
+        userId: true,
+        status: true,
+        overallScore: true,
+        communicationScore: true,
+        technicalScore: true,
+        problemSolvingScore: true,
+        summary: { select: { id: true } },
+      },
+    });
+    if (!interview || interview.userId !== userId)
+      throw new NotFoundError("Interview not found");
+
+    if (interview.status === "FAILED") return { status: "failed" as const };
+
+    const scored = interview.overallScore != null && interview.summary != null;
+
+    return {
+      status: scored ? ("completed" as const) : ("pending" as const),
+      scores: scored
+        ? {
+            overall: interview.overallScore,
+            communication: interview.communicationScore,
+            technical: interview.technicalScore,
+            problemSolving: interview.problemSolvingScore,
+          }
+        : null,
+    };
+  }
+
+  async evaluate(userId: string, interviewId: string) {
+    const interview = await this.prisma.interviewSession.findUnique({
+      where: { id: interviewId },
+      select: { userId: true },
+    });
+    if (!interview || interview.userId !== userId)
+      throw new NotFoundError("Interview not found");
+
+    try {
+      return await evaluateInterview(interviewId);
+    } catch (err) {
+      console.error("[evaluate] failed:", err);
+      await this.prisma.interviewSession.update({
+        where: { id: interviewId },
+        data: { status: "FAILED" },
+      });
+      throw new AppError("Evaluation failed. Please try again.", 500);
+    }
   }
 }

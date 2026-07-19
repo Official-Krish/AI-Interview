@@ -1,6 +1,7 @@
 import { app } from "./src/app";
 import { startWsServer } from "./src/ws";
 import { initRedis } from "./src/lib/redis";
+import { initCache } from "./src/lib/cache";
 
 // ── Global error handlers — prevent process crashes on leaked rejections ──
 process.on("unhandledRejection", (reason, promise) => {
@@ -14,6 +15,7 @@ process.on("uncaughtException", (err, origin) => {
 
 async function main() {
   await initRedis();
+  await initCache();
 
   const port = parseInt(Bun.env.PORT ?? "3000");
 

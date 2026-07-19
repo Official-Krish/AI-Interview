@@ -4,7 +4,8 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { motion } from "motion/react";
 import { loginSchema, type LoginInput } from "@evalio/shared";
-import { useLogin, useSession } from "../lib/auth";
+import { useLogin } from "../lib/auth";
+import { useQueryClient } from "@tanstack/react-query";
 import { AuthLayout } from "@/components/static/AuthLayout";
 import { SEO } from "@/components/SEO";
 import toast from "react-hot-toast";
@@ -13,7 +14,8 @@ export function LoginPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const loginMutation = useLogin();
-  const { data: session, isLoading } = useSession();
+  const queryClient = useQueryClient();
+  const session = queryClient.getQueryData<{ user: unknown }>(["session"]);
   const [showPassword, setShowPassword] = useState(false);
   const {
     register,
@@ -45,7 +47,6 @@ export function LoginPage() {
     });
   };
 
-  if (isLoading) return null;
   if (session) return <Navigate to="/dashboard" replace />;
 
   return (

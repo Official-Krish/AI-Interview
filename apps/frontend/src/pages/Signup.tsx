@@ -8,7 +8,8 @@ import {
   passwordRequirements,
   type SignupInput,
 } from "@evalio/shared";
-import { useSignup, useSession } from "../lib/auth";
+import { useSignup } from "../lib/auth";
+import { useQueryClient } from "@tanstack/react-query";
 import { AuthLayout } from "@/components/static/AuthLayout";
 import { SEO } from "@/components/SEO";
 import toast from "react-hot-toast";
@@ -16,7 +17,8 @@ import toast from "react-hot-toast";
 export function SignupPage() {
   const navigate = useNavigate();
   const signupMutation = useSignup();
-  const { data: session, isLoading } = useSession();
+  const queryClient = useQueryClient();
+  const session = queryClient.getQueryData<{ user: unknown }>(["session"]);
   const [showPassword, setShowPassword] = useState(false);
   const {
     register,
@@ -50,7 +52,6 @@ export function SignupPage() {
     });
   };
 
-  if (isLoading) return null;
   if (session) return <Navigate to="/dashboard" replace />;
 
   return (

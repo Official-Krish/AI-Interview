@@ -1,7 +1,7 @@
 import { prisma } from "../lib/prisma";
 import { GoogleGenAI } from "@google/genai";
-import { FAILURE_SIGNALS } from "../constants/signals";
 import type { FailureSignalCode } from "../constants/signals";
+import { buildProfileAnalysisPrompt } from "../prompt/profile";
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
@@ -20,6 +20,15 @@ async function readJson<T = Json>(val: unknown): Promise<T[]> {
 function simplify(val: unknown): Json[] {
   if (Array.isArray(val)) return val as Json[];
   return [];
+}
+
+export class ProfileService {
+  async getSkills(userId: string) {
+    const profile = await prisma.candidateSkillProfile.findUnique({
+      where: { userId },
+    });
+    return { profile };
+  }
 }
 
 export async function updateCandidateProfile(interviewId: string) {
@@ -42,61 +51,20 @@ export async function updateCandidateProfile(interviewId: string) {
 
   const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
 
-  const signalCodes = Object.keys(FAILURE_SIGNALS)
-    .filter((k) => k !== "OTHER")
-    .join(", ");
-
-  const prompt = `Analyze this interview session and assess the candidate's skills.
-
-Candidate: ${interview.user.name ?? "Unknown"}
-Role: ${interview.position ?? "Unknown"}
-Company: ${interview.companyName ?? "General"}
-Style: ${interview.interviewStyle ?? "PROFESSIONAL"}
-Depth: ${interview.interviewDepth ?? "STANDARD"}
-
-Summary strengths: ${JSON.stringify(interview.summary.strengths)}
-Summary weaknesses: ${JSON.stringify(interview.summary.weaknesses)}
-Scores - Overall: ${interview.overallScore}, Communication: ${interview.communicationScore}, Technical: ${interview.technicalScore}, Problem Solving: ${interview.problemSolvingScore}
-Turns: ${interview.turns.length}
-
-Based on the scores above, generate a JSON object:
-{
-  "communication": { "score": number, "note": "1-sentence assessment", "trend": "up"|"down"|"stable" },
-  "technicalDepth": { "score": number, "note": "1-sentence assessment", "trend": "up"|"down"|"stable" },
-  "problemSolving": { "score": number, "note": "1-sentence assessment", "trend": "up"|"down"|"stable" },
-  "leadership": { "score": number, "note": "1-sentence assessment", "trend": "up"|"down"|"stable" },
-  "patterns": ["string - observed patterns in this session"],
-  "mostImprovedSkill": "string",
-  "weakestSkill": "string",
-  "signals": [
-    {
-      "code": "one of: ${signalCodes}",
-      "turnIds": [1, 5],
-      "reason": "1-sentence why this signal was observed"
-    }
-  ],
-  "otherSignals": [
-    {
-      "label": "short descriptive label",
-      "turnIds": [3],
-      "reason": "1-sentence why"
-    }
-  ],
-  "traits": {
-    "analytical": { "score": number, "description": "1-sentence assessment" },
-    "communication": { "score": number, "description": "1-sentence assessment" },
-    "ownership": { "score": number, "description": "1-sentence assessment" },
-    "adaptability": { "score": number, "description": "1-sentence assessment" },
-    "decisionMaking": { "score": number, "description": "1-sentence assessment" },
-    "influence": { "score": number, "description": "1-sentence assessment" }
-  }
-}
-
-Select 0-N signals from the predefined taxonomy only (${signalCodes}). Use turnIds to reference turn orderNumbers (1-based). If none of the codes fit, use otherSignals with a descriptive label.
-
-Assess the candidate's stable identity traits based on this session. Score each 0-100 and write a 1-sentence description for each.
-
-Return ONLY valid JSON.`;
+  const prompt = buildProfileAnalysisPrompt({
+    userName: interview.user.name ?? "Unknown",
+    position: interview.position,
+    companyName: interview.companyName,
+    interviewStyle: interview.interviewStyle,
+    interviewDepth: interview.interviewDepth,
+    strengths: JSON.stringify(interview.summary.strengths),
+    weaknesses: JSON.stringify(interview.summary.weaknesses),
+    overallScore: interview.overallScore,
+    communicationScore: interview.communicationScore,
+    technicalScore: interview.technicalScore,
+    problemSolvingScore: interview.problemSolvingScore,
+    turnCount: interview.turns.length,
+  });
 
   try {
     const response = await ai.models.generateContent({

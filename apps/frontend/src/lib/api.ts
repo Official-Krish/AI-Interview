@@ -1,4 +1,5 @@
 import { client, BASE_URL } from "./eden";
+import type { InterviewTurn } from "@evalio/shared";
 import type {
   User,
   InterviewSession,
@@ -24,125 +25,172 @@ function errorMessage(err: unknown): string {
   return "Request failed";
 }
 
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly code:
+      | "NETWORK"
+      | "VALIDATION"
+      | "SERVER"
+      | "AUTH"
+      | "UNKNOWN",
+    public readonly status?: number,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+async function apiCall<T>(
+  fn: () => Promise<{ data?: T; error?: unknown }>,
+): Promise<T> {
+  const { data, error } = await fn();
+  if (error) {
+    const errObj = error as { status?: number; value?: unknown };
+    const status = errObj.status ?? 0;
+    const msg = errorMessage(errObj.value);
+    if (status === 401) throw new ApiError(msg, "AUTH", status);
+    if (status >= 500) throw new ApiError(msg, "SERVER", status);
+    if (status >= 400) throw new ApiError(msg, "VALIDATION", status);
+    throw new ApiError(msg, "UNKNOWN", status);
+  }
+  return data as T;
+}
+
 export const api = {
-  login: async (input: LoginInput) => {
-    const { data, error } = await client.api.auth.login.post(input);
-    if (error) throw new Error(errorMessage(error.value));
-    return data as unknown as { user: User };
-  },
+  login: (input: LoginInput) =>
+    apiCall(() => client.api.auth.login.post(input)) as Promise<{ user: User }>,
 
-  signup: async (input: SignupInput) => {
-    const { data, error } = await client.api.auth.signup.post(input);
-    if (error) throw new Error(errorMessage(error.value));
-    return data as unknown as { user: User };
-  },
+  signup: (input: SignupInput) =>
+    apiCall(() => client.api.auth.signup.post(input)) as Promise<{
+      user: User;
+    }>,
 
-  me: async () => {
-    const { data, error } = await client.api.auth.me.get();
-    if (error) throw new Error(errorMessage(error.value));
-    return data as { user: User } | { user: null };
-  },
+  me: () =>
+    apiCall(() => client.api.auth.me.get()) as Promise<
+      { user: User } | { user: null }
+    >,
 
   logout: async () => {
     await client.api.auth.logout.post();
   },
 
-  forgotPassword: async (input: ForgotPasswordInput) => {
-    const { data, error } =
-      await client.api.auth["forgot-password"].post(input);
-    if (error) throw new Error(errorMessage(error.value));
-    return data as unknown as { message: string };
-  },
+  forgotPassword: (input: ForgotPasswordInput) =>
+    apiCall(() => client.api.auth["forgot-password"].post(input)) as Promise<{
+      message: string;
+    }>,
 
-  resetPassword: async (input: ResetPasswordInput) => {
-    const { data, error } = await client.api.auth["reset-password"].post(input);
-    if (error) throw new Error(errorMessage(error.value));
-    return data as unknown as { message: string };
-  },
+  resetPassword: (input: ResetPasswordInput) =>
+    apiCall(() => client.api.auth["reset-password"].post(input)) as Promise<{
+      message: string;
+    }>,
 
-  verifyOtp: async (input: VerifyOtpInput) => {
-    const { data, error } = await client.api.auth["verify-otp"].post(input);
-    if (error) throw new Error(errorMessage(error.value));
-    return data as unknown as { user: User; verified: boolean };
-  },
+  verifyOtp: (input: VerifyOtpInput) =>
+    apiCall(() => client.api.auth["verify-otp"].post(input)) as Promise<{
+      user: User;
+      verified: boolean;
+    }>,
 
-  resendOtp: async (input: ResendOtpInput) => {
-    const { data, error } = await client.api.auth["resend-otp"].post(input);
-    if (error) throw new Error(errorMessage(error.value));
-    return data as unknown as { message: string };
-  },
+  refresh: () =>
+    apiCall(() => client.api.auth.refresh.post()) as Promise<{
+      success: boolean;
+    }>,
 
-  listResumes: async () => {
-    const { data, error } = await client.api.resumes.get();
-    if (error) throw new Error(errorMessage(error.value));
-    return data as unknown as { resumes: Resume[] };
-  },
+  resendOtp: (input: ResendOtpInput) =>
+    apiCall(() => client.api.auth["resend-otp"].post(input)) as Promise<{
+      message: string;
+    }>,
+
+  listResumes: () =>
+    apiCall(() => client.api.resumes.get()) as Promise<{ resumes: Resume[] }>,
 
   uploadResume: async (file: File) => {
     const form = new FormData();
     form.append("file", file);
-    const res = await fetch(`${BASE_URL}/api/resumes/upload`, {
-      method: "POST",
-      credentials: "include",
-      body: form,
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "Upload failed");
-    return data as { resume: Resume };
+    let lastErr: unknown;
+    for (let attempt = 0; attempt <= 2; attempt++) {
+      try {
+        const res = await fetch(`${BASE_URL}/api/resumes/upload`, {
+          method: "POST",
+          credentials: "include",
+          body: form,
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new ApiError(
+            data.error || "Upload failed",
+            res.status >= 500 ? "SERVER" : "VALIDATION",
+            res.status,
+          );
+        }
+        return data as { resume: Resume };
+      } catch (err) {
+        if (err instanceof ApiError) throw err;
+        lastErr = err;
+        if (attempt < 2)
+          await new Promise((r) => setTimeout(r, Math.pow(2, attempt) * 500));
+      }
+    }
+    throw new ApiError(
+      lastErr instanceof Error ? lastErr.message : "Upload failed",
+      "NETWORK",
+    );
   },
 
-  listInterviews: async (skip = 0, take = 20) => {
-    const { data, error } = await client.api.interview.get({
-      query: { skip: String(skip), take: String(take) },
-    });
-    if (error) throw new Error(errorMessage(error.value));
-    return data as unknown as { interviews: InterviewSession[] };
-  },
+  listInterviews: (skip = 0, take = 20, cursor?: string) =>
+    apiCall(() =>
+      client.api.interview.get({
+        query: {
+          skip: String(skip),
+          take: String(take),
+          ...(cursor ? { cursor } : {}),
+        },
+      }),
+    ) as Promise<{
+      interviews: InterviewSession[];
+      nextCursor: string | null;
+    }>,
 
-  getInterview: async (id: string) => {
-    const { data, error } = await client.api.interview({ id }).get();
-    if (error) throw new Error(errorMessage(error.value));
-    return data as unknown as { interview: InterviewSession };
-  },
+  getInterview: (id: string) =>
+    apiCall(() => client.api.interview({ id }).get()) as Promise<{
+      interview: InterviewSession;
+    }>,
 
-  createInterview: async (input: CreateInterviewInput) => {
-    const { data, error } = await client.api.interview.create.post(input);
-    if (error) throw new Error(errorMessage(error.value));
-    return data as unknown as { interview: InterviewSession };
-  },
+  listTurns: (id: string, cursor?: string, take = 50) =>
+    apiCall(() =>
+      client.api.interview({ id }).turns.get({
+        query: { cursor, take: String(take) },
+      }),
+    ) as Promise<{
+      turns: InterviewTurn[];
+      nextCursor: string | null;
+    }>,
 
-  evaluate: async (id: string) => {
-    const { data, error } = await client.api.interview({ id }).evaluate.post();
-    if (error) throw new Error(errorMessage(error.value));
-    return data as unknown as { evaluation: EvaluationResult };
-  },
+  createInterview: (input: CreateInterviewInput) =>
+    apiCall(() => client.api.interview.create.post(input)) as Promise<{
+      interview: InterviewSession;
+    }>,
 
-  evaluationStatus: async (id: string) => {
-    const { data, error } = await client.api
-      .interview({ id })
-      .evaluate.status.get();
-    if (error) throw new Error(errorMessage(error.value));
-    return data as unknown as EvaluationStatus;
-  },
+  evaluate: (id: string) =>
+    apiCall(() => client.api.interview({ id }).evaluate.post()) as Promise<{
+      evaluation: EvaluationResult;
+    }>,
 
-  getUser: async () => {
-    const { data, error } = await client.api.user.get();
-    if (error) throw new Error(errorMessage(error.value));
-    return data as unknown as {
+  evaluationStatus: (id: string) =>
+    apiCall(() =>
+      client.api.interview({ id }).evaluate.status.get(),
+    ) as Promise<EvaluationStatus>,
+
+  getUser: () =>
+    apiCall(() => client.api.user.get()) as Promise<{
       user: User & { candidate?: { githubUsername: string | null } };
-    };
-  },
+    }>,
 
-  updateUser: async (input: { name?: string }) => {
-    const { data, error } = await client.api.user.patch(input);
-    if (error) throw new Error(errorMessage(error.value));
-    return data as { user: User };
-  },
+  updateUser: (input: { name?: string }) =>
+    apiCall(() => client.api.user.patch(input)) as Promise<{ user: User }>,
 
-  getOverallAnalysis: async () => {
-    const { data, error } = await client.api.analysis.get();
-    if (error) throw new Error(errorMessage(error.value));
-    return data as unknown as {
+  getOverallAnalysis: () =>
+    apiCall(() => client.api.analysis.get()) as unknown as Promise<{
       sessions: Array<{
         id: string;
         companyName: string | null;
@@ -162,13 +210,10 @@ export const api = {
         } | null;
       }>;
       skillProfile: Record<string, unknown> | null;
-    };
-  },
+    }>,
 
-  getAnalysis: async (id: string) => {
-    const { data, error } = await client.api.interview({ id }).analysis.get();
-    if (error) throw new Error(errorMessage(error.value));
-    return data as unknown as {
+  getAnalysis: (id: string) =>
+    apiCall(() => client.api.interview({ id }).analysis.get()) as Promise<{
       interview: Record<string, unknown>;
       scoreHistory: Array<{
         id: string;
@@ -182,19 +227,15 @@ export const api = {
         mode: string;
       }>;
       skillProfile: Record<string, unknown> | null;
-    };
-  },
+    }>,
 
-  getSkillProfile: async () => {
-    const { data, error } = await client.api.profile.skills.get();
-    if (error) throw new Error(errorMessage(error.value));
-    return data as { profile: Record<string, unknown> | null };
-  },
+  getSkillProfile: () =>
+    apiCall(() => client.api.profile.skills.get()) as Promise<{
+      profile: Record<string, unknown> | null;
+    }>,
 
-  getGithubProfile: async () => {
-    const { data, error } = await client.api.github.get();
-    if (error) throw new Error(errorMessage(error.value));
-    return data as {
+  getGithubProfile: () =>
+    apiCall(() => client.api.github.get()) as Promise<{
       profile: {
         username: string;
         summary: string;
@@ -206,10 +247,9 @@ export const api = {
           language?: string | null;
         }[];
       } | null;
-    };
-  },
+    }>,
 
-  updateGithubProfile: async (input: {
+  updateGithubProfile: (input: {
     username: string;
     summary?: string;
     languages?: string[];
@@ -219,25 +259,18 @@ export const api = {
       stars?: number;
       language?: string | null;
     }[];
-  }) => {
-    const { data, error } = await client.api.github.put(input);
-    if (error) throw new Error(errorMessage(error.value));
-    return data as { profile: Record<string, unknown> };
-  },
+  }) =>
+    apiCall(() => client.api.github.put(input)) as Promise<{
+      profile: Record<string, unknown>;
+    }>,
 
-  deleteGithubProfile: async () => {
-    const { data, error } = await client.api.github.delete();
-    if (error) throw new Error(errorMessage(error.value));
-    return data as { success: boolean };
-  },
+  deleteGithubProfile: () =>
+    apiCall(() => client.api.github.delete()) as Promise<{ success: boolean }>,
 
-  generateCompany: async (companyName: string, industry?: string) => {
-    const { data, error } = await client.api.companies.generate.post({
-      companyName,
-      industry,
-    });
-    if (error) throw new Error(errorMessage(error.value));
-    return data as {
+  generateCompany: (companyName: string, industry?: string) =>
+    apiCall(() =>
+      client.api.companies.generate.post({ companyName, industry }),
+    ) as Promise<{
       company: {
         name: string;
         industry: string;
@@ -249,30 +282,25 @@ export const api = {
           defaultDepth: string;
         }[];
       };
-    };
-  },
+    }>,
 
-  submitFeedback: async (input: {
+  submitFeedback: (input: {
     subject: string;
     rating: number;
     category: string;
     message: string;
-  }) => {
-    const { data, error } = await client.api.feedback.submit.post(input);
-    if (error) throw new Error(errorMessage(error.value));
-    return data as { feedback: { id: string } };
-  },
+  }) =>
+    apiCall(() => client.api.feedback.submit.post(input)) as Promise<{
+      feedback: { id: string };
+    }>,
 
-  getWsToken: async () => {
-    const { data, error } = await client.api.auth["ws-token"].post({});
-    if (error) throw new Error(errorMessage(error.value));
-    return data as { token: string };
-  },
+  getWsToken: () =>
+    apiCall(() => client.api.auth["ws-token"].post({})) as Promise<{
+      token: string;
+    }>,
 
-  listFeedbacks: async () => {
-    const { data, error } = await client.api.feedback.get();
-    if (error) throw new Error(errorMessage(error.value));
-    return data as unknown as {
+  listFeedbacks: () =>
+    apiCall(() => client.api.feedback.get()) as unknown as Promise<{
       feedbacks: {
         id: string;
         userId: string;
@@ -283,53 +311,35 @@ export const api = {
         createdAt: string;
         user: { name: string | null; email: string };
       }[];
-    };
-  },
+    }>,
 
-  startDsaSession: async (interviewId: string) => {
-    const { data, error } = await client.api.dsa.start.post({
-      interviewId,
-    });
-    if (error) throw new Error(errorMessage(error.value));
-    return data as unknown as { session: Record<string, unknown> };
-  },
+  startDsaSession: (interviewId: string) =>
+    apiCall(() => client.api.dsa.start.post({ interviewId })) as Promise<{
+      session: Record<string, unknown>;
+    }>,
 
-  startHftSession: async (interviewId: string) => {
-    const { data, error } = await client.api.dsa.start.post({
-      interviewId,
-      language: "cpp",
-    });
-    if (error) throw new Error(errorMessage(error.value));
-    return data as unknown as { session: Record<string, unknown> };
-  },
+  startHftSession: (interviewId: string) =>
+    apiCall(() =>
+      client.api.dsa.start.post({ interviewId, language: "cpp" }),
+    ) as Promise<{
+      session: Record<string, unknown>;
+    }>,
 
-  startSqlSession: async (interviewId: string) => {
-    const { data, error } = await client.api.sql.start.post({
-      interviewId,
-    });
-    if (error) throw new Error(errorMessage(error.value));
-    return data as unknown as { session: Record<string, unknown> };
-  },
+  startSqlSession: (interviewId: string) =>
+    apiCall(() => client.api.sql.start.post({ interviewId })) as Promise<{
+      session: Record<string, unknown>;
+    }>,
 
-  startSdSession: async (interviewId: string) => {
-    const { data, error } = await client.api.sd.start.post({
-      interviewId,
-    });
-    if (error) throw new Error(errorMessage(error.value));
-    return data as unknown as {
+  startSdSession: (interviewId: string) =>
+    apiCall(() => client.api.sd.start.post({ interviewId })) as Promise<{
       title: string;
       description: string;
       fullBreakdown: string;
       difficulty: string;
-    };
-  },
+    }>,
 
-  startCanvasSession: async (interviewId: string) => {
-    const { data, error } = await client.api.canvas.start.post({
-      interviewId,
-    });
-    if (error) throw new Error(errorMessage(error.value));
-    return data as unknown as {
+  startCanvasSession: (interviewId: string) =>
+    apiCall(() => client.api.canvas.start.post({ interviewId })) as Promise<{
       title: string;
       description: string;
       fullBreakdown: string;
@@ -340,15 +350,12 @@ export const api = {
         description: string;
         fullBreakdown: string;
       }>;
-    };
-  },
+    }>,
 
-  startCaseStudySession: async (interviewId: string) => {
-    const { data, error } = await client.api["case-study"].start.post({
-      interviewId,
-    });
-    if (error) throw new Error(errorMessage(error.value));
-    return data as unknown as {
+  startCaseStudySession: (interviewId: string) =>
+    apiCall(() =>
+      client.api["case-study"].start.post({ interviewId }),
+    ) as Promise<{
       title: string;
       description: string;
       fullBreakdown: string;
@@ -359,15 +366,12 @@ export const api = {
         description: string;
         fullBreakdown: string;
       }>;
-    };
-  },
+    }>,
 
-  startDiscussionSession: async (interviewId: string) => {
-    const { data, error } = await client.api.discussion.start.post({
-      interviewId,
-    });
-    if (error) throw new Error(errorMessage(error.value));
-    return data as unknown as {
+  startDiscussionSession: (interviewId: string) =>
+    apiCall(() =>
+      client.api.discussion.start.post({ interviewId }),
+    ) as Promise<{
       title: string;
       description: string;
       fullBreakdown: string;
@@ -378,14 +382,10 @@ export const api = {
         description: string;
         fullBreakdown: string;
       }>;
-    };
-  },
+    }>,
 
-  startQuantSession: async (interviewId: string) => {
-    const { data, error } = await client.api.quant.start.post({
-      interviewId,
-    });
-    if (error) throw new Error(errorMessage(error.value));
-    return data as unknown as { session: Record<string, unknown> };
-  },
+  startQuantSession: (interviewId: string) =>
+    apiCall(() => client.api.quant.start.post({ interviewId })) as Promise<{
+      session: Record<string, unknown>;
+    }>,
 };

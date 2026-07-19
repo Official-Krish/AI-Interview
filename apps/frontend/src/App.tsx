@@ -1,11 +1,11 @@
-import { lazy, Suspense, useState, useEffect } from "react";
+import { lazy, Suspense, useState, useCallback, useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   RouterProvider,
   createBrowserRouter,
   Navigate,
 } from "react-router-dom";
-import { Toaster } from "react-hot-toast";
+import { Toaster, toast } from "react-hot-toast";
 import { motion } from "motion/react";
 import { useSession } from "./lib/auth";
 import { ThemeProvider } from "./lib/theme";
@@ -13,6 +13,7 @@ import { useTheme } from "./lib/use-theme";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { AppLayout } from "./components/layout/AppLayout";
 import { SiteLoader, AnimatedLogo } from "./components/layout/SiteLoader";
+import { SessionExpiredModal } from "./components/SessionExpiredModal";
 
 const lazyPage = <K extends string>(
   imp: () => Promise<Record<K, React.ComponentType>>,
@@ -206,8 +207,21 @@ export function App() {
       }),
   );
 
+  const [sessionExpired, setSessionExpired] = useState(false);
   const [isReady, setIsReady] = useState(false);
 
+  const handleSessionExpired = useCallback(() => {
+    queryClient.setQueryData(["session"], { user: null });
+    setSessionExpired(true);
+  }, [queryClient]);
+
+  useEffect(() => {
+    window.addEventListener("auth:expired", handleSessionExpired);
+    return () =>
+      window.removeEventListener("auth:expired", handleSessionExpired);
+  }, [handleSessionExpired]);
+
+  // Mark ready after fonts and window load
   useEffect(() => {
     let isMounted = true;
 
@@ -250,6 +264,10 @@ export function App() {
             </Suspense>
           </SiteLoader>
         </ErrorBoundary>
+        <SessionExpiredModal
+          open={sessionExpired}
+          onClose={() => setSessionExpired(false)}
+        />
         <Toaster
           position="top-center"
           gutter={12}
