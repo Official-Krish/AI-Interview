@@ -48,6 +48,12 @@ export function ResultsPage() {
         : false,
   });
 
+  const { data: turnsData } = useQuery({
+    queryKey: ["turns", id],
+    queryFn: () => api.listTurns(id!),
+    enabled: !!id,
+  });
+
   const queryClient = useQueryClient();
   const [evalStuck, setEvalStuck] = useState(false);
   const [retryingEval, setRetryingEval] = useState(false);
@@ -194,7 +200,7 @@ export function ResultsPage() {
     interview.problemSolvingScore != null
       ? Math.round(interview.problemSolvingScore / 10)
       : 0;
-  const turns = interview.turns ?? [];
+  const turns = turnsData?.turns ?? [];
   const verdict = getVerdict(overall);
 
   const scoreTrendLast5 = (interview as unknown as Record<string, unknown>)

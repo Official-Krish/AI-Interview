@@ -515,8 +515,8 @@ async function writeEvaluation(
         )
       : null;
 
-  await Promise.all([
-    prisma.interviewSummary.upsert({
+  await prisma.$transaction(async (tx) => {
+    await tx.interviewSummary.upsert({
       where: { interviewId },
       create: {
         interviewId,
@@ -537,8 +537,9 @@ async function writeEvaluation(
         resumeStrengths: result.resumeStrengths,
         resumeWeaknesses: result.resumeWeaknesses,
       },
-    }),
-    prisma.interviewSession.update({
+    });
+
+    await tx.interviewSession.update({
       where: { id: interviewId },
       data: {
         overallScore: result.overallScore,
@@ -554,11 +555,12 @@ async function writeEvaluation(
         discrepancies: result.discrepancies as any,
         durationSeconds,
       },
-    }),
-    ...result.turns.map((t) => {
+    });
+
+    for (const t of result.turns) {
       const dbTurn = turns[t.orderNumber - 1];
-      if (!dbTurn) return Promise.resolve();
-      return prisma.interviewTurn.update({
+      if (!dbTurn) continue;
+      await tx.interviewTurn.update({
         where: { id: dbTurn.id },
         data: {
           score: t.score,
@@ -567,8 +569,8 @@ async function writeEvaluation(
           feedback: t.feedback,
         },
       });
-    }),
-  ]);
+    }
+  });
 
   // Trigger candidate profile update asynchronously
   try {
@@ -899,36 +901,32 @@ Provide specific, actionable feedback for each question. Return ONLY valid JSON 
       return;
     }
 
-    // Update each problem with score and feedback
-    await Promise.all(
-      result.attempts.map((a) =>
-        prisma.dsaProblem.updateMany({
+    // Update each problem, session, and interview atomically
+    await prisma.$transaction(async (tx) => {
+      for (const a of result.attempts) {
+        await tx.dsaProblem.updateMany({
           where: { dsaSessionId: dsaSession.id, index: a.index },
           data: {
             score: a.score,
             feedback: a.feedback,
             complexity: a.complexity,
           },
-        }),
-      ),
-    );
+        });
+      }
 
-    // Update session with overall score and mark as evaluated
-    await prisma.dsaSession.update({
-      where: { id: dsaSession.id },
-      data: {
-        status: "EVALUATED",
-      },
-    });
+      await tx.dsaSession.update({
+        where: { id: dsaSession.id },
+        data: { status: "EVALUATED" },
+      });
 
-    // Store overall scores on the interview session
-    await prisma.interviewSession.update({
-      where: { id: interviewId },
-      data: {
-        overallScore: result.overallScore,
-        technicalScore: result.overallScore,
-        problemSolvingScore: result.overallScore,
-      },
+      await tx.interviewSession.update({
+        where: { id: interviewId },
+        data: {
+          overallScore: result.overallScore,
+          technicalScore: result.overallScore,
+          problemSolvingScore: result.overallScore,
+        },
+      });
     });
 
     console.log(

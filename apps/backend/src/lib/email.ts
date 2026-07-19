@@ -1,8 +1,13 @@
 import { Resend } from "resend";
+import { prisma } from "./prisma";
+import { logger } from "./logger";
 
 const resend = new Resend(Bun.env.RESEND_API_KEY!);
 const EMAIL_FROM = Bun.env.EMAIL_FROM ?? "Evalio <noreply@krishlabs.tech>";
 const FRONTEND_URL = "https://evalio.krishlabs.tech";
+
+const MAX_RETRIES = 3;
+const RETRY_BASE_DELAY_MS = 60_000;
 
 const C = {
   bg: "#080808", // canvas
@@ -345,6 +350,70 @@ function buildContactEmail(
   `);
 }
 
+async function bufferEmail(
+  to: string,
+  subject: string,
+  html: string,
+  type: string,
+): Promise<void> {
+  try {
+    await prisma.pendingEmail.create({
+      data: {
+        to,
+        subject,
+        html,
+        type,
+        attempts: 1,
+        maxAttempts: MAX_RETRIES,
+        nextRetryAt: new Date(Date.now() + RETRY_BASE_DELAY_MS),
+      },
+    });
+    logger.info("email.buffered", { to, subject, type });
+  } catch (err) {
+    logger.error("email.buffer_failed", { to, subject, type, err });
+  }
+}
+
+export async function flushPendingEmails(): Promise<void> {
+  const pending = await prisma.pendingEmail.findMany({
+    where: {
+      sentAt: null,
+      nextRetryAt: { lte: new Date() },
+      attempts: { lt: MAX_RETRIES },
+    },
+    take: 20,
+  });
+
+  for (const email of pending) {
+    try {
+      await resend.emails.send({
+        from: EMAIL_FROM,
+        to: email.to,
+        subject: email.subject,
+        html: email.html,
+      });
+      await prisma.pendingEmail.update({
+        where: { id: email.id },
+        data: { sentAt: new Date() },
+      });
+      logger.info("email.flush_success", { id: email.id, to: email.to });
+    } catch (err) {
+      const nextRetry = new Date(
+        Date.now() + RETRY_BASE_DELAY_MS * Math.pow(2, email.attempts),
+      );
+      await prisma.pendingEmail.update({
+        where: { id: email.id },
+        data: {
+          attempts: { increment: 1 },
+          lastError: err instanceof Error ? err.message : String(err),
+          nextRetryAt: nextRetry,
+        },
+      });
+      logger.error("email.flush_failed", { id: email.id, to: email.to, err });
+    }
+  }
+}
+
 export async function sendContactEmail(
   name: string,
   senderEmail: string,
@@ -366,23 +435,38 @@ export async function sendContactEmail(
   }
 }
 
+async function sendWithBuffer(
+  to: string,
+  subject: string,
+  html: string,
+  type: string,
+): Promise<boolean> {
+  try {
+    await resend.emails.send({
+      from: EMAIL_FROM,
+      to,
+      subject,
+      html,
+    });
+    return true;
+  } catch (err) {
+    logger.error("email.send_failed", { to, subject, type, err });
+    await bufferEmail(to, subject, html, type);
+    return false;
+  }
+}
+
 export async function sendOtpEmail(
   email: string,
   _name: string,
   otp: string,
 ): Promise<boolean> {
-  try {
-    await resend.emails.send({
-      from: EMAIL_FROM,
-      to: email,
-      subject: "Verify your email — Evalio",
-      html: buildOtpEmail(otp),
-    });
-    return true;
-  } catch (err) {
-    console.error("[email] send failed:", err);
-    return false;
-  }
+  return sendWithBuffer(
+    email,
+    "Verify your email — Evalio",
+    buildOtpEmail(otp),
+    "otp",
+  );
 }
 
 export async function sendResetOtpEmail(
@@ -390,52 +474,34 @@ export async function sendResetOtpEmail(
   _name: string,
   otp: string,
 ): Promise<boolean> {
-  try {
-    await resend.emails.send({
-      from: EMAIL_FROM,
-      to: email,
-      subject: "Reset your password — Evalio",
-      html: buildResetOtpEmail(otp),
-    });
-    return true;
-  } catch (err) {
-    console.error("[email] send failed:", err);
-    return false;
-  }
+  return sendWithBuffer(
+    email,
+    "Reset your password — Evalio",
+    buildResetOtpEmail(otp),
+    "password_reset",
+  );
 }
 
 export async function sendFeedbackThankYouEmail(
   email: string,
   name: string,
 ): Promise<boolean> {
-  try {
-    await resend.emails.send({
-      from: EMAIL_FROM,
-      to: email,
-      subject: "Thank you for your feedback — Evalio",
-      html: buildFeedbackThankYouEmail(name),
-    });
-    return true;
-  } catch (err) {
-    console.error("[email] feedback thank-you send failed:", err);
-    return false;
-  }
+  return sendWithBuffer(
+    email,
+    "Thank you for your feedback — Evalio",
+    buildFeedbackThankYouEmail(name),
+    "feedback",
+  );
 }
 
 export async function sendWelcomeEmail(
   email: string,
   name: string,
 ): Promise<boolean> {
-  try {
-    await resend.emails.send({
-      from: EMAIL_FROM,
-      to: email,
-      subject: "Welcome to Evalio — email verified",
-      html: buildWelcomeEmail(name),
-    });
-    return true;
-  } catch (err) {
-    console.error("[email] send failed:", err);
-    return false;
-  }
+  return sendWithBuffer(
+    email,
+    "Welcome to Evalio — email verified",
+    buildWelcomeEmail(name),
+    "welcome",
+  );
 }

@@ -24,6 +24,22 @@ async function doRefresh(): Promise<boolean> {
   }
 }
 
+async function fetchWithRetry(
+  input: RequestInfo,
+  init?: RequestInit,
+  attempt = 0,
+): Promise<Response> {
+  try {
+    return await fetch(input, init);
+  } catch (err) {
+    if (attempt < 2) {
+      await new Promise((r) => setTimeout(r, Math.pow(2, attempt) * 500));
+      return fetchWithRetry(input, init, attempt + 1);
+    }
+    throw err;
+  }
+}
+
 async function authFetch(
   input: RequestInfo,
   init?: RequestInit,
@@ -32,7 +48,7 @@ async function authFetch(
   const isRefresh = url.includes("/api/auth/refresh");
   const isSessionCheck = url.includes("/api/auth/me");
 
-  const res = await fetch(input, { ...init, credentials: "include" });
+  const res = await fetchWithRetry(input, { ...init, credentials: "include" });
 
   if (res.status === 401 && !isRefresh && !isSessionCheck) {
     if (!refreshPromise) {
@@ -42,7 +58,7 @@ async function authFetch(
     refreshPromise = null;
 
     if (refreshed) {
-      return fetch(input, { ...init, credentials: "include" });
+      return fetchWithRetry(input, { ...init, credentials: "include" });
     }
 
     window.dispatchEvent(new CustomEvent("auth:expired"));

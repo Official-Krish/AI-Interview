@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useEffect } from "react";
+import { lazy, Suspense, useState, useCallback, useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   RouterProvider,
@@ -13,6 +13,7 @@ import { useTheme } from "./lib/use-theme";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { AppLayout } from "./components/layout/AppLayout";
 import { SiteLoader, AnimatedLogo } from "./components/layout/SiteLoader";
+import { SessionExpiredModal } from "./components/SessionExpiredModal";
 
 const lazyPage = <K extends string>(
   imp: () => Promise<Record<K, React.ComponentType>>,
@@ -206,19 +207,21 @@ export function App() {
       }),
   );
 
+  const [sessionExpired, setSessionExpired] = useState(false);
   const [isReady, setIsReady] = useState(false);
 
-  useEffect(() => {
-    const handleExpired = () => {
-      queryClient.setQueryData(["session"], { user: null });
-      if (window.location.pathname === "/login") return;
-      toast.error("Session expired. Please log in again.");
-      window.location.href = "/login";
-    };
-    window.addEventListener("auth:expired", handleExpired);
-    return () => window.removeEventListener("auth:expired", handleExpired);
-  }, []);
+  const handleSessionExpired = useCallback(() => {
+    queryClient.setQueryData(["session"], { user: null });
+    setSessionExpired(true);
+  }, [queryClient]);
 
+  useEffect(() => {
+    window.addEventListener("auth:expired", handleSessionExpired);
+    return () =>
+      window.removeEventListener("auth:expired", handleSessionExpired);
+  }, [handleSessionExpired]);
+
+  // Mark ready after fonts and window load
   useEffect(() => {
     let isMounted = true;
 
@@ -261,6 +264,10 @@ export function App() {
             </Suspense>
           </SiteLoader>
         </ErrorBoundary>
+        <SessionExpiredModal
+          open={sessionExpired}
+          onClose={() => setSessionExpired(false)}
+        />
         <Toaster
           position="top-center"
           gutter={12}

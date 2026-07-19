@@ -60,7 +60,7 @@ export function ContactPage() {
       return;
     }
 
-    toast.success(data?.message ?? "Message sent!");
+    toast.success((data as { message?: string })?.message ?? "Message sent!");
     setName("");
     setEmail("");
     setMessage("");

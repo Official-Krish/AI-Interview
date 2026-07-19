@@ -69,60 +69,65 @@ export class InterviewService {
       data.resumeId = latestResume.id;
     }
 
-    if (data.githubUrl) {
-      const username = extractUsername(data.githubUrl);
-      if (username) {
-        try {
-          const parsed = await parseGithubProfile(username);
-          await this.prisma.githubProfile.upsert({
-            where: { userId },
-            create: {
-              userId,
-              username: parsed.username,
-              summary: parsed.summary,
-              languages: parsed.languages,
-              projects: parsed.projects,
-            },
-            update: {
-              username: parsed.username,
-              summary: parsed.summary,
-              languages: parsed.languages,
-              projects: parsed.projects,
-              analyzedAt: new Date(),
-            },
-          });
-          await this.prisma.candidateProfile.update({
-            where: { userId },
-            data: { githubUsername: parsed.username },
-          });
-        } catch {
-          // GitHub fetch failed, continue without profile
+    const interview = await this.prisma.$transaction(async (tx) => {
+      if (data.githubUrl) {
+        const username = extractUsername(data.githubUrl);
+        if (username) {
+          try {
+            const parsed = await parseGithubProfile(username);
+            await tx.githubProfile.upsert({
+              where: { userId },
+              create: {
+                userId,
+                username: parsed.username,
+                summary: parsed.summary,
+                languages: parsed.languages,
+                projects: parsed.projects,
+              },
+              update: {
+                username: parsed.username,
+                summary: parsed.summary,
+                languages: parsed.languages,
+                projects: parsed.projects,
+                analyzedAt: new Date(),
+              },
+            });
+            await tx.candidateProfile.update({
+              where: { userId },
+              data: { githubUsername: parsed.username },
+            });
+          } catch {
+            // GitHub fetch failed, continue without profile
+          }
         }
       }
-    }
 
-    const interview = await this.prisma.interviewSession.create({
-      data: {
-        userId,
-        status: "CREATED",
-        mode:
-          (data.mode as "VOICE" | "LIVE_CODE" | "LIVE_CANVAS" | "DISCUSSION") ??
-          "VOICE",
-        position: data.position,
-        jobDescription: data.jobDescription,
-        resumeId: data.resumeId,
-        ...(data.companyId && { companyId: data.companyId }),
-        ...(data.companyName && { companyName: data.companyName }),
-        ...(data.roleTitle && { roleTitle: data.roleTitle }),
-        ...(data.roleCategory && { roleCategory: data.roleCategory }),
-        ...(data.interviewRound && { interviewRound: data.interviewRound }),
-        ...(data.interviewStyle && {
-          interviewStyle: data.interviewStyle as InterviewStyle,
-        }),
-        ...(data.interviewDepth && {
-          interviewDepth: data.interviewDepth as InterviewDepth,
-        }),
-      },
+      return tx.interviewSession.create({
+        data: {
+          userId,
+          status: "CREATED",
+          mode:
+            (data.mode as
+              | "VOICE"
+              | "LIVE_CODE"
+              | "LIVE_CANVAS"
+              | "DISCUSSION") ?? "VOICE",
+          position: data.position,
+          jobDescription: data.jobDescription,
+          resumeId: data.resumeId,
+          ...(data.companyId && { companyId: data.companyId }),
+          ...(data.companyName && { companyName: data.companyName }),
+          ...(data.roleTitle && { roleTitle: data.roleTitle }),
+          ...(data.roleCategory && { roleCategory: data.roleCategory }),
+          ...(data.interviewRound && { interviewRound: data.interviewRound }),
+          ...(data.interviewStyle && {
+            interviewStyle: data.interviewStyle as InterviewStyle,
+          }),
+          ...(data.interviewDepth && {
+            interviewDepth: data.interviewDepth as InterviewDepth,
+          }),
+        },
+      });
     });
 
     return { interview };
@@ -158,7 +163,6 @@ export class InterviewService {
     const interview = await this.prisma.interviewSession.findUnique({
       where: { id },
       include: {
-        turns: { orderBy: { createdAt: "asc" } },
         summary: true,
         resume: { select: { id: true, version: true, objectKey: true } },
         dsaSession: {

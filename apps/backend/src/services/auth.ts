@@ -8,6 +8,7 @@ import {
   RateLimitError,
   NotFoundError,
 } from "../lib/errors";
+import { logger } from "../lib/logger";
 
 export interface TokenService {
   signAccessToken(user: {
@@ -88,22 +89,25 @@ export class AuthService {
     const otp = generateOtp();
     const otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
 
-    const user = await this.prisma.user.create({
-      data: {
-        email,
-        name: name ?? null,
-        password: hashed,
-        verificationOtp: otp,
-        verificationOtpExpiry: otpExpiry,
-        candidate: { create: {} },
-      },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        role: true,
-        emailVerified: true,
-      },
+    const user = await this.prisma.$transaction(async (tx) => {
+      const u = await tx.user.create({
+        data: {
+          email,
+          name: name ?? null,
+          password: hashed,
+          verificationOtp: otp,
+          verificationOtpExpiry: otpExpiry,
+          candidate: { create: {} },
+        },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          emailVerified: true,
+        },
+      });
+      return u;
     });
 
     const sent = await this.email.sendOtpEmail(
@@ -111,13 +115,14 @@ export class AuthService {
       user.name ?? "there",
       otp,
     );
-    if (!sent) {
-      console.warn("[auth] OTP email failed to send, but user was created");
-    }
+
+    logger.info("auth.signup", { userId: user.id, email: user.email });
 
     return {
       user,
-      message: "Account created. Please verify your email using the OTP sent.",
+      message: sent
+        ? "Account created. Please verify your email using the OTP sent."
+        : "Account created. Could not send verification email — please request a new OTP later.",
     };
   }
 
@@ -171,6 +176,8 @@ export class AuthService {
     this.email
       .sendWelcomeEmail(user.email, user.name ?? "there")
       .catch(() => {});
+
+    logger.info("auth.verifyOtp", { userId: user.id, email: user.email });
 
     return {
       user: {
@@ -282,6 +289,8 @@ export class AuthService {
     const accessToken = await this.tokens.signAccessToken(user);
     const refresh = await this.tokens.signRefreshToken(user);
 
+    logger.info("auth.login", { userId: user.id, email: user.email });
+
     return {
       user: {
         id: user.id,
@@ -338,6 +347,8 @@ export class AuthService {
       );
     }
 
+    logger.info("auth.forgotPassword", { userId: user.id, email: user.email });
+
     return {
       message: "If that email exists, a reset code has been sent.",
     };
@@ -385,6 +396,8 @@ export class AuthService {
         verificationOtpExpiry: null,
       },
     });
+
+    logger.info("auth.resetPassword", { userId: user.id, email });
 
     return { message: "Password has been reset successfully." };
   }

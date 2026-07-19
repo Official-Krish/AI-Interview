@@ -126,6 +126,9 @@ model InterviewSession {
   canvasGraphHistory  Json?              @default("[]")
   createdAt           DateTime           @default(now())
   user                User               @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([userId, status, createdAt])
 }
 
 model SystemDesignQuestion {
@@ -275,6 +278,23 @@ model Feedback {
   user      User     @relation(fields: [userId], references: [id])
 
   @@index([userId])
+}
+
+model PendingEmail {
+  id         String   @id @default(cuid())
+  to         String
+  subject    String
+  html       String   @db.Text
+  type       String   @default("general")
+  attempts   Int      @default(0)
+  maxAttempts Int     @default(3)
+  lastError  String?
+  createdAt  DateTime @default(now())
+  nextRetryAt DateTime?
+  sentAt     DateTime?
+
+  @@index([nextRetryAt])
+  @@index([createdAt])
 }
 
 enum UserRole {

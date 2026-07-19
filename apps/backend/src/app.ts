@@ -24,6 +24,7 @@ import { globalRateLimit } from "./middleware/rateLimit";
 import { securityHeaders } from "./middleware/security";
 import { bodyLimit } from "./middleware/bodyLimit";
 import { csrfProtection } from "./middleware/csrf";
+import { requestLogger } from "./middleware/logging";
 import { AppError, toErrorResponse } from "./lib/errors";
 
 const JWT_SECRET = Bun.env.JWT_SECRET;
@@ -94,6 +95,7 @@ export const app = new Elysia()
   .use(securityHeaders)
   .use(csrfProtection)
   .use(bodyLimit)
+  .use(requestLogger)
   .get("/health", () => ({ status: "ok", timestamp: new Date().toISOString() }))
   .get("/ready", () => ({ status: "ok", timestamp: new Date().toISOString() }))
   .get(
