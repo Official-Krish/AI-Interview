@@ -7,10 +7,7 @@ import {
 } from "../../services/question";
 import { verifyWsToken, startInterview } from "../orchestrator";
 import { tryActivate, enqueue as queueEnqueue } from "../../lib/queue";
-import {
-  buildMemoryBrief,
-  buildRuntimeGuidance,
-} from "../../services/memoryBrief";
+import { buildMemoryBrief, buildRuntimeGuidance } from "@evalio/memory";
 import type { InterviewConnection } from "../session";
 import { startHeartbeat } from "../helpers/heartbeat";
 import { PacingTracker } from "../helpers/pacing";
@@ -22,7 +19,7 @@ import {
   VOICE_BUDGETS,
   DSA_BUDGETS,
   SD_BUDGETS,
-} from "../../prompt";
+} from "@evalio/prompts";
 
 export async function handleInit(
   conn: InterviewConnection,

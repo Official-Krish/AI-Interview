@@ -1,16 +1,16 @@
 import type { PrismaClient } from "@evalio/db";
 import { prisma } from "../lib/prisma";
-import { generateJson } from "../lib/ai";
+import { generateJson } from "@evalio/ai";
 import { updateCandidateProfile } from "./profile";
 import { aggregateFailurePatterns } from "./failurePatterns";
 import { aggregateIdentityTraits } from "./identityTraits";
-import { extractMemoriesFromInterview } from "./memory";
+import { extractMemoriesFromInterview } from "@evalio/memory";
 import type { LiveAssessment } from "../ws/tools";
 import type { InterviewerRuntime } from "../ws/runtime";
 import type { DeterministicState } from "../ws/deterministic";
 import { getMomentum, getScoreConfidence } from "../ws/deterministic";
 import { NotFoundError, AppError } from "../lib/errors";
-import { SYSTEM_DESIGN_EVALUATION_SCHEMA } from "../prompt/evaluate";
+import { SYSTEM_DESIGN_EVALUATION_SCHEMA } from "@evalio/prompts";
 
 function buildLiveObservationsBlock(
   liveAssessments?: LiveAssessment[],

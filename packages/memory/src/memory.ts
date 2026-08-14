@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { MemoryStatus, MemoryType } from "@evalio/db";
-import { prisma } from "../lib/prisma";
-import { embed, generateJson } from "../lib/ai";
+import { prisma } from "@evalio/db";
+import { embed, generateJson } from "@evalio/ai";
 
 export interface MemoryCandidate {
   type: MemoryType;
@@ -232,7 +232,7 @@ export async function retrieveMemories(
            1 - (embedding <=> ${vecLiteral}::vector) AS similarity
     FROM "Memory"
     WHERE "userId" = ${userId} AND embedding IS NOT NULL
-    ORDER BY (1 - (embedding <=> ${vecLiteral}::vector)) * confidence * importance DESC
+    ORDER BY (1 - (embedding <=> ${vecLiteral}::vector)) * (0.5 + 0.5 * confidence) * (0.5 + 0.5 * importance) DESC
     LIMIT ${k}
   `;
 

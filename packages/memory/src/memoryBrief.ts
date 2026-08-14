@@ -1,4 +1,4 @@
-import { prisma } from "../lib/prisma";
+import { prisma } from "@evalio/db";
 import { retrieveMemories, type RetrievedMemory } from "./memory";
 import type { MemoryType } from "@evalio/db";
 

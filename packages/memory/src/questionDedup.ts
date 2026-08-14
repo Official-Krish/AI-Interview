@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { embed } from "../lib/ai";
+import { embed } from "@evalio/ai";
 
 export const SEMANTIC_DUPLICATE_THRESHOLD = 0.85;
 

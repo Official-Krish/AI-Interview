@@ -1,5 +1,5 @@
 import type { PrismaClient } from "@evalio/db";
-import { generateJson } from "../lib/ai";
+import { generateJson } from "@evalio/ai";
 import {
   getCachedQuestion,
   setCachedQuestion,
@@ -16,7 +16,7 @@ import {
   CASE_STUDY_PROMPT,
   CASE_STUDY_QUESTION_SCHEMA_SINGLE,
   CASE_STUDY_QUESTION_SCHEMA_DOUBLE,
-} from "../prompt/generation";
+} from "@evalio/prompts";
 
 type GenResult = {
   primary: { title: string; description: string; fullBreakdown: string };

@@ -1,7 +1,7 @@
 import type { PrismaClient } from "@evalio/db";
 import { NotFoundError, ValidationError, AppError } from "../lib/errors";
-import { generateJson } from "../lib/ai";
-import { buildSqlGenerationPrompt } from "../prompt/generation/sql";
+import { generateJson } from "@evalio/ai";
+import { buildSqlGenerationPrompt } from "@evalio/prompts";
 
 const SQL_CACHED_QUESTIONS = 8;
 

@@ -1,7 +1,7 @@
 import { prisma } from "../lib/prisma";
-import { generateJson } from "../lib/ai";
-import type { FailureSignalCode } from "../constants/signals";
-import { buildProfileAnalysisPrompt } from "../prompt/profile";
+import { generateJson } from "@evalio/ai";
+import type { FailureSignalCode } from "@evalio/prompts";
+import { buildProfileAnalysisPrompt } from "@evalio/prompts";
 
 type Json = Record<string, unknown>;
 

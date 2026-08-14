@@ -1,4 +1,4 @@
-import { FAILURE_SIGNALS } from "../constants/signals";
+import { FAILURE_SIGNALS } from "./constants/signals";
 
 export function buildProfileAnalysisPrompt(params: {
   userName: string;

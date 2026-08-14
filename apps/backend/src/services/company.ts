@@ -1,6 +1,6 @@
 import { AppError } from "../lib/errors";
-import { generateJson } from "../lib/ai";
-import { buildCompanyGenerationPrompt } from "../prompt/generation/company";
+import { generateJson } from "@evalio/ai";
+import { buildCompanyGenerationPrompt } from "@evalio/prompts";
 
 export class CompanyService {
   async generate(body: { companyName: string; industry?: string }) {

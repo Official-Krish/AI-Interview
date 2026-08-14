@@ -1,7 +1,7 @@
 import type { PrismaClient } from "@evalio/db";
 import { NotFoundError, ValidationError, AppError } from "../lib/errors";
-import { generateJson } from "../lib/ai";
-import { buildQuantGenerationPrompt } from "../prompt/generation/quant";
+import { generateJson } from "@evalio/ai";
+import { buildQuantGenerationPrompt } from "@evalio/prompts";
 
 export class QuantService {
   constructor(private prisma: PrismaClient) {}

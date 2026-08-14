@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
-import { DSA_PHASES } from "../prompt/dsa";
+import { DSA_PHASES } from "@evalio/prompts";
 import type { InterviewConnection } from "./session";
 import { addScoredTurn, getMomentum, getRunningScore } from "./deterministic";
 

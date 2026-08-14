@@ -1,12 +1,12 @@
 import type { PrismaClient, InterviewDepth, InterviewStyle } from "@evalio/db";
-import { generateJson } from "../lib/ai";
+import { generateJson } from "@evalio/ai";
 import {
   getCachedQuestion,
   setCachedQuestion,
   clearCachedQuestion,
 } from "../lib/questionCache";
 import { AppError, NotFoundError, ValidationError } from "../lib/errors";
-import { buildSdGenerationPrompt } from "../prompt/generation/sd";
+import { buildSdGenerationPrompt } from "@evalio/prompts";
 
 interface SdCacheEntry {
   title: string;

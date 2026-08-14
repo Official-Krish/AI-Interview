@@ -1,0 +1,30 @@
+{
+  "name": "@evalio/memory",
+  "module": "index.ts",
+  "main": "index.ts",
+  "types": "index.ts",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./index.ts"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "check-types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@evalio/ai": "workspace:*",
+    "@evalio/db": "workspace:*",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@repo/eslint-config": "workspace:*",
+    "@types/bun": "latest",
+    "eslint": "^9.39.1",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.50.0"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}
