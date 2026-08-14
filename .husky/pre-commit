@@ -11,4 +11,4 @@ do
 done
 
 # Run lint-staged
-bunx lint-staged
+bun --bun run lint-staged

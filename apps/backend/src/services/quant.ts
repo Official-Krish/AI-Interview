@@ -1,9 +1,7 @@
-import { GoogleGenAI } from "@google/genai";
 import type { PrismaClient } from "@evalio/db";
 import { NotFoundError, ValidationError, AppError } from "../lib/errors";
+import { generateJson } from "../lib/ai";
 import { buildQuantGenerationPrompt } from "../prompt/generation/quant";
-
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
 export class QuantService {
   constructor(private prisma: PrismaClient) {}
@@ -75,14 +73,14 @@ export class QuantService {
       }>;
     };
     try {
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: [{ role: "user", parts: [{ text: generationPrompt }] }],
-        config: { responseMimeType: "application/json" },
-      });
-      const text = response.text;
-      if (!text) throw new Error("Empty response from Gemini");
-      parsed = JSON.parse(text);
+      parsed = await generateJson<{
+        questions: Array<{
+          title: string;
+          description: string;
+          difficulty: string;
+          type: string;
+        }>;
+      }>({ prompt: generationPrompt });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error("[quant/start] generation failed:", message);

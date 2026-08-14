@@ -1,6 +1,6 @@
-import { GoogleGenAI } from "@google/genai";
 import type { PrismaClient } from "@evalio/db";
 import { prisma } from "../lib/prisma";
+import { generateJson } from "../lib/ai";
 import { updateCandidateProfile } from "./profile";
 import { aggregateFailurePatterns } from "./failurePatterns";
 import { aggregateIdentityTraits } from "./identityTraits";
@@ -459,42 +459,17 @@ Infer candidate state from the transcript: nervousness (hesitation, hedging), en
 async function generateEvaluation(
   prompt: string,
 ): Promise<EvaluationResult | null> {
-  const apiKey = Bun.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY env not set");
-
-  const ai = new GoogleGenAI({ apiKey });
-
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        config: {
-          responseMimeType: "application/json",
-          responseJsonSchema: EVALUATION_SCHEMA,
-        },
-      });
-
-      const text = response.text;
-      if (!text) {
-        console.warn(
-          `[evaluate] empty response, raw:`,
-          JSON.stringify(response).slice(0, 500),
-        );
-        throw new Error("No response from Gemini");
-      }
-
-      return JSON.parse(text) as EvaluationResult;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.warn(`[evaluate] attempt ${attempt + 1}/2 failed: ${message}`);
-      if (attempt < 1) {
-        await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
-      }
-    }
+  try {
+    return await generateJson<EvaluationResult>({
+      prompt,
+      jsonSchema: EVALUATION_SCHEMA,
+      attempts: 2,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[evaluate] evaluation generation failed: ${message}`);
+    return null;
   }
-
-  return null;
 }
 
 async function writeEvaluation(
@@ -766,41 +741,17 @@ const DSA_EVALUATION_SCHEMA = {
 async function generateDsaEvaluation(
   prompt: string,
 ): Promise<DsaEvaluationResult | null> {
-  const apiKey = Bun.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY env not set");
-
-  const ai = new GoogleGenAI({ apiKey });
-
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        config: {
-          responseMimeType: "application/json",
-          responseJsonSchema: DSA_EVALUATION_SCHEMA,
-        },
-      });
-
-      const text = response.text;
-      if (!text) {
-        console.warn(`[dsa-evaluate] empty response, attempt ${attempt + 1}`);
-        throw new Error("No response from Gemini");
-      }
-
-      return JSON.parse(text) as DsaEvaluationResult;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.warn(
-        `[dsa-evaluate] attempt ${attempt + 1}/2 failed: ${message}`,
-      );
-      if (attempt < 1) {
-        await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
-      }
-    }
+  try {
+    return await generateJson<DsaEvaluationResult>({
+      prompt,
+      jsonSchema: DSA_EVALUATION_SCHEMA,
+      attempts: 2,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[dsa-evaluate] evaluation generation failed: ${message}`);
+    return null;
   }
-
-  return null;
 }
 
 export async function evaluateDsaSession(
@@ -968,36 +919,17 @@ interface SystemDesignEvaluationResult {
 async function generateSystemDesignEvaluation(
   prompt: string,
 ): Promise<SystemDesignEvaluationResult | null> {
-  const apiKey = Bun.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY env not set");
-
-  const ai = new GoogleGenAI({ apiKey });
-
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        config: {
-          responseMimeType: "application/json",
-          responseJsonSchema: SYSTEM_DESIGN_EVALUATION_SCHEMA,
-        },
-      });
-
-      const text = response.text;
-      if (!text) {
-        throw new Error("No response from Gemini");
-      }
-
-      return JSON.parse(text) as SystemDesignEvaluationResult;
-    } catch {
-      if (attempt < 1) {
-        await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
-      }
-    }
+  try {
+    return await generateJson<SystemDesignEvaluationResult>({
+      prompt,
+      jsonSchema: SYSTEM_DESIGN_EVALUATION_SCHEMA,
+      attempts: 2,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[sd-evaluate] evaluation generation failed: ${message}`);
+    return null;
   }
-
-  return null;
 }
 
 export async function evaluateSystemDesignSession(
