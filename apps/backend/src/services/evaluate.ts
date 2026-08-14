@@ -4,6 +4,7 @@ import { generateJson } from "../lib/ai";
 import { updateCandidateProfile } from "./profile";
 import { aggregateFailurePatterns } from "./failurePatterns";
 import { aggregateIdentityTraits } from "./identityTraits";
+import { extractMemoriesFromInterview } from "./memory";
 import type { LiveAssessment } from "../ws/tools";
 import type { InterviewerRuntime } from "../ws/runtime";
 import type { DeterministicState } from "../ws/deterministic";
@@ -552,6 +553,7 @@ async function writeEvaluation(
     await updateCandidateProfile(interviewId);
     await aggregateFailurePatterns(interviewId);
     await aggregateIdentityTraits(interviewId);
+    await extractMemoriesFromInterview(interviewId);
   } catch (err) {
     console.error("[evaluate] post-evaluation updates failed:", err);
   }

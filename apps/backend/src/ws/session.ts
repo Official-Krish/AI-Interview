@@ -91,6 +91,9 @@ export class InterviewConnection {
   pacing: PacingTracker | null = null;
   pacingTimer: ReturnType<typeof setInterval> | null = null;
 
+  // Memory-aware runtime guidance (injected via silent realtimeInput)
+  runtimeMemoryGuidance: string | null = null;
+
   // Rate limiter: max 20 WS messages per second per connection
   private messageTimestamps: number[] = [];
   private readonly MAX_WS_MSGS_PER_SEC = 20;

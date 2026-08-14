@@ -297,6 +297,25 @@ model PendingEmail {
   @@index([createdAt])
 }
 
+model Memory {
+  id                String       @id @default(cuid())
+  userId            String
+  type              MemoryType
+  category          String
+  content           String       @db.Text
+  confidence        Float        @default(0.5)
+  importance        Float        @default(0.5)
+  status            MemoryStatus @default(ACTIVE)
+  embedding         Unsupported("vector(3072)")?
+  sourceInterviewId String
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  lastUsedAt        DateTime?
+
+  @@index([userId, status])
+  @@index([userId, type])
+}
+
 enum UserRole {
   FREE
   PRO
@@ -336,4 +355,17 @@ enum LeetCodeDifficulty {
   EASY
   MEDIUM
   HARD
+}
+
+enum MemoryType {
+  SEMANTIC
+  EPISODIC
+  FAILURE_PATTERN
+}
+
+enum MemoryStatus {
+  ACTIVE
+  WEAKENING
+  IMPROVING
+  STALE
 }

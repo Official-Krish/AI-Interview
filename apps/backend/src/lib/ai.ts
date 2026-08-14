@@ -248,7 +248,7 @@ export async function generateJson<T>(
   return parseJson<T>(content, opts.schema);
 }
 
-// ── Embeddings (Gemini text-embedding-004) ──
+// ── Embeddings (Gemini gemini-embedding-001, 3072-dim) ──
 
 let geminiClient: GoogleGenAI | null = null;
 
@@ -264,7 +264,7 @@ export async function embed(text: string): Promise<number[]> {
   try {
     const ai = getGemini();
     const res = await ai.models.embedContent({
-      model: "text-embedding-004",
+      model: "gemini-embedding-001",
       contents: [{ role: "user", parts: [{ text }] }],
     });
     const values = res.embeddings?.[0]?.values;

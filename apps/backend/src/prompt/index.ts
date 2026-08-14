@@ -23,6 +23,7 @@ export {
   VOICE_BUDGETS,
   DSA_BUDGETS,
   SD_BUDGETS,
+  buildMemoryBriefSection,
 } from "./shared";
 
 // Generic (VOICE)

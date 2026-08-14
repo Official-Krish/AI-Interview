@@ -7,6 +7,10 @@ import {
 } from "../../services/question";
 import { verifyWsToken, startInterview } from "../orchestrator";
 import { tryActivate, enqueue as queueEnqueue } from "../../lib/queue";
+import {
+  buildMemoryBrief,
+  buildRuntimeGuidance,
+} from "../../services/memoryBrief";
 import type { InterviewConnection } from "../session";
 import { startHeartbeat } from "../helpers/heartbeat";
 import { PacingTracker } from "../helpers/pacing";
@@ -106,6 +110,25 @@ export async function handleInit(
   const skillProfile = await prisma.candidateSkillProfile.findUnique({
     where: { userId: interview.userId },
   });
+
+  // Memory-aware personalization: build a Candidate Memory Brief for the
+  // system prompt and a compact runtime guidance block for silent injection.
+  const memoryTopic =
+    interview.position ??
+    (interview as { roleTitle?: string | null }).roleTitle ??
+    (interview as { roleCategory?: string | null }).roleCategory ??
+    null;
+  const [memoryBrief, runtimeGuidance] = await Promise.all([
+    buildMemoryBrief(interview.userId, memoryTopic).catch((err) => {
+      console.error("[init] memory brief failed:", err);
+      return null;
+    }),
+    buildRuntimeGuidance(interview.userId, memoryTopic).catch((err) => {
+      console.error("[init] runtime guidance failed:", err);
+      return null;
+    }),
+  ]);
+  conn.runtimeMemoryGuidance = runtimeGuidance;
 
   const scoredInterviews = await prisma.interviewSession.findMany({
     where: {
@@ -281,6 +304,7 @@ export async function handleInit(
         weakest: skillProfile?.weakestSkill ?? null,
       },
       dsaDurationMinutes: durationMinutes,
+      memoryBrief,
     });
     console.log("[init] built DSA prompt:", systemPrompt.slice(0, 200));
   } else if (route.mode === "LIVE_CANVAS") {
@@ -383,6 +407,7 @@ export async function handleInit(
       scoreTrendLast5,
       roleCategory,
       seniorityLabel,
+      memoryBrief,
     };
     systemPrompt = buildPromptFromRoute(route, { sdInput });
     console.log("[init] built SD prompt:", systemPrompt.slice(0, 200));
@@ -468,6 +493,7 @@ export async function handleInit(
       scoreTrendLast5,
       roleCategory,
       seniorityLabel,
+      memoryBrief,
     };
     systemPrompt = buildPromptFromRoute(route, { sdInput });
     console.log("[init] built Discussion prompt:", systemPrompt.slice(0, 200));
@@ -518,6 +544,7 @@ export async function handleInit(
       scoreTrendLast5,
       roleCategory,
       seniorityLabel,
+      memoryBrief,
     };
     systemPrompt = buildPromptFromRoute(route, { voiceInput: promptInput });
   }
