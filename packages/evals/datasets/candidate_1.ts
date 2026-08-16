@@ -49,7 +49,10 @@ export const CANDIDATE_1_MEMORIES: CandidateMemory[] = [
   },
 ];
 
-export async function seedCandidate1(opts?: { questions?: string[] }) {
+export async function seedCandidate1(opts?: {
+  questions?: string[];
+  strongKubernetes?: boolean;
+}) {
   const user = await createUser(CANDIDATE_1_EMAIL);
   const interview = await createCompletedInterview(
     user.id,
@@ -64,6 +67,18 @@ export async function seedCandidate1(opts?: { questions?: string[] }) {
       content: m.content,
       confidence: m.confidence,
       importance: m.importance,
+    });
+  }
+  if (opts?.strongKubernetes) {
+    await createMemory({
+      userId: user.id,
+      sourceInterviewId: interview.id,
+      type: "SEMANTIC",
+      category: "Kubernetes",
+      content:
+        "Candidate has strong Kubernetes fundamentals and understands core concepts like pods, deployments and services.",
+      confidence: 0.85,
+      importance: 0.7,
     });
   }
   return user;
