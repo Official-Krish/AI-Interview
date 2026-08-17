@@ -4,6 +4,9 @@ WORKDIR /app
 
 COPY package.json bun.lock turbo.json ./
 COPY apps/frontend/package.json apps/frontend/package.json
+COPY packages/ai/package.json packages/ai/package.json
+COPY packages/memory/package.json packages/memory/package.json
+COPY packages/prompts/package.json packages/prompts/package.json
 COPY packages/shared/package.json packages/shared/package.json
 COPY packages/db/package.json packages/db/package.json
 COPY packages/eslint-config/package.json packages/eslint-config/package.json
@@ -15,6 +18,9 @@ RUN bun install
 
 COPY apps/frontend ./apps/frontend
 COPY apps/backend ./apps/backend
+COPY packages/ai ./packages/ai
+COPY packages/memory ./packages/memory
+COPY packages/prompts ./packages/prompts
 COPY packages/shared ./packages/shared
 COPY packages/db ./packages/db
 COPY packages/eslint-config ./packages/eslint-config
