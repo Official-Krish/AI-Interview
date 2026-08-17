@@ -22,7 +22,7 @@ spec:
     spec:
       containers:
         - name: evalio-frontend
-          image: krishanand01/evalio-frontend:v1.9.1
+          image: krishanand01/evalio-frontend:v1.9.7
           ports:
             - containerPort: 80
           livenessProbe:
