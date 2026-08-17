@@ -447,12 +447,19 @@ export async function startInterview(
 
   // Start pacing timer (30s heartbeat)
   if (conn.pacing) {
+    let pacingTick = 0;
     conn.pacingTimer = setInterval(() => {
       if (conn.gemini && conn.pacing) {
+        pacingTick++;
         const cs = conn.candidateState;
-        const pacingMsg = conn.pacing.buildMessage(
+        let pacingMsg = conn.pacing.buildMessage(
           `n=${cs.nervousness},e=${cs.engagement},c=${cs.confidence},sig=${cs.currentSignal}`,
         );
+        // Inject memory-aware guidance every other tick (~60s) so Gemini keeps
+        // probing known weaknesses and never re-asks previous questions.
+        if (pacingTick % 2 === 0 && conn.runtimeMemoryGuidance) {
+          pacingMsg = `${pacingMsg}\n\n${conn.runtimeMemoryGuidance}`;
+        }
         try {
           conn.gemini.send(
             JSON.stringify({

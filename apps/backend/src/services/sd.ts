@@ -1,14 +1,12 @@
-import { GoogleGenAI } from "@google/genai";
 import type { PrismaClient, InterviewDepth, InterviewStyle } from "@evalio/db";
+import { generateJson } from "@evalio/ai";
 import {
   getCachedQuestion,
   setCachedQuestion,
   clearCachedQuestion,
 } from "../lib/questionCache";
 import { AppError, NotFoundError, ValidationError } from "../lib/errors";
-import { buildSdGenerationPrompt } from "../prompt/generation/sd";
-
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+import { buildSdGenerationPrompt } from "@evalio/prompts";
 
 interface SdCacheEntry {
   title: string;
@@ -134,14 +132,10 @@ export class SystemDesignService {
       backup: { title: string; description: string; fullBreakdown: string };
     };
     try {
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: [{ role: "user", parts: [{ text: generationPrompt }] }],
-        config: { responseMimeType: "application/json" },
-      });
-      const text = response.text;
-      if (!text) throw new Error("Empty response from Gemini");
-      parsed = JSON.parse(text);
+      parsed = await generateJson<{
+        primary: { title: string; description: string; fullBreakdown: string };
+        backup: { title: string; description: string; fullBreakdown: string };
+      }>({ prompt: generationPrompt });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error("[sd/start] generation failed:", message);

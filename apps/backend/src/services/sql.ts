@@ -1,9 +1,7 @@
-import { GoogleGenAI } from "@google/genai";
 import type { PrismaClient } from "@evalio/db";
 import { NotFoundError, ValidationError, AppError } from "../lib/errors";
-import { buildSqlGenerationPrompt } from "../prompt/generation/sql";
-
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+import { generateJson } from "@evalio/ai";
+import { buildSqlGenerationPrompt } from "@evalio/prompts";
 
 const SQL_CACHED_QUESTIONS = 8;
 
@@ -45,19 +43,14 @@ export class SqlService {
 
     let questions: SqlQuestion[];
     try {
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: [{ role: "user", parts: [{ text: generationPrompt }] }],
-        config: { responseMimeType: "application/json" },
+      const parsed = await generateJson<SqlQuestion[]>({
+        prompt: generationPrompt,
       });
-      const text = response.text;
-      if (!text) throw new Error("Empty response from Gemini");
-      const parsed = JSON.parse(text);
       if (!Array.isArray(parsed) || parsed.length !== SQL_CACHED_QUESTIONS)
         throw new Error(
           `Expected ${SQL_CACHED_QUESTIONS} questions, got ${parsed.length}`,
         );
-      questions = parsed as SqlQuestion[];
+      questions = parsed;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error("[sql/start] generation failed:", message);

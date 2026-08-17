@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@evalio/db";
 import { NotFoundError, ValidationError, AppError } from "../lib/errors";
-import { DSA_PHASES } from "../prompt/dsa";
+import { DSA_PHASES } from "@evalio/prompts";
 import { fetchCompanyQuestions, getOrCreateQuestion } from "./questionPool";
 
 export class DsaService {

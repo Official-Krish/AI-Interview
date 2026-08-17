@@ -1,4 +1,4 @@
-import type { PacingBudget } from "../../prompt/types";
+import type { PacingBudget } from "@evalio/prompts";
 
 export type { PacingBudget };
 

@@ -40,6 +40,7 @@ export interface PromptInput {
   scoreTrendLast5: "improving" | "stable" | "declining" | null;
   roleCategory?: string | null;
   seniorityLabel?: string | null;
+  memoryBrief?: string | null;
 }
 
 export interface SystemDesignPromptInput {
@@ -74,6 +75,7 @@ export interface SystemDesignPromptInput {
   scoreTrendLast5: "improving" | "stable" | "declining" | null;
   roleCategory?: string | null;
   seniorityLabel?: string | null;
+  memoryBrief?: string | null;
 }
 
 export interface PacingBudget {

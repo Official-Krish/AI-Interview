@@ -29,7 +29,7 @@
   ],
   "lint-staged": {
     "*.{ts,tsx}": [
-      "bunx eslint --fix",
+      "bunx --bun eslint --fix",
       "prettier --write"
     ],
     "*.{json,md}": [

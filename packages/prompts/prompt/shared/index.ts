@@ -9,6 +9,7 @@ export { buildStyleDirective } from "./style";
 export { buildDepthDirective } from "./depth";
 export { buildGeneralPrinciples } from "./principles";
 export { buildCandidateHistory } from "./history";
+export { buildMemoryBriefSection } from "./memory";
 export {
   buildPacingDirective,
   VOICE_BUDGETS,

@@ -27,6 +27,7 @@ import {
   buildHftCodingPrompt,
 } from "./hft";
 import type { SystemDesignPromptInput } from "./types";
+import { buildMemoryBriefSection } from "./shared";
 
 interface RoundRoute {
   mode: InterviewMode;
@@ -117,6 +118,32 @@ export function resolveRoute(
 }
 
 export function buildPromptFromRoute(
+  route: ResolvedRoute,
+  params: {
+    dsaQuestions?: Array<{
+      index: number;
+      title: string;
+      description: string;
+      difficulty: string;
+    }>;
+    dsaContext?: any;
+    dsaHistory?: any;
+    dsaDurationMinutes?: number;
+    sdInput?: SystemDesignPromptInput & { sdQuestion?: any };
+    voiceInput?: PromptInput;
+    memoryBrief?: string | null;
+  },
+): string {
+  const prompt = buildPrompt(route, params);
+  const brief =
+    params.memoryBrief ??
+    params.voiceInput?.memoryBrief ??
+    params.sdInput?.memoryBrief ??
+    null;
+  return brief ? prompt + "\n\n" + buildMemoryBriefSection(brief) : prompt;
+}
+
+function buildPrompt(
   route: ResolvedRoute,
   params: {
     dsaQuestions?: Array<{

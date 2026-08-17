@@ -1,5 +1,5 @@
-import { GoogleGenAI } from "@google/genai";
 import type { PrismaClient } from "@evalio/db";
+import { generateJson } from "@evalio/ai";
 import {
   getCachedQuestion,
   setCachedQuestion,
@@ -16,9 +16,7 @@ import {
   CASE_STUDY_PROMPT,
   CASE_STUDY_QUESTION_SCHEMA_SINGLE,
   CASE_STUDY_QUESTION_SCHEMA_DOUBLE,
-} from "../prompt/generation";
-
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+} from "@evalio/prompts";
 
 type GenResult = {
   primary: { title: string; description: string; fullBreakdown: string };
@@ -98,15 +96,7 @@ Style: ${style} — ${
 ${schema}
 `;
 
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: [{ role: "user", parts: [{ text: generationPrompt }] }],
-    config: { responseMimeType: "application/json" },
-  });
-
-  const text = response.text;
-  if (!text) throw new Error("Empty response from Gemini");
-  return JSON.parse(text);
+  return generateJson<GenResult>({ prompt: generationPrompt });
 }
 
 export function clearCanvasQuestion(interviewId: string) {
@@ -179,15 +169,7 @@ ${basePrompt}
 ${schema}
 `;
 
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: [{ role: "user", parts: [{ text: generationPrompt }] }],
-    config: { responseMimeType: "application/json" },
-  });
-
-  const text = response.text;
-  if (!text) throw new Error("Empty response from Gemini");
-  return JSON.parse(text);
+  return generateJson<GenResult>({ prompt: generationPrompt });
 }
 
 export function clearDiscussionQuestion(interviewId: string) {
@@ -258,15 +240,7 @@ ${CASE_STUDY_PROMPT}
 ${schema}
 `;
 
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: [{ role: "user", parts: [{ text: generationPrompt }] }],
-    config: { responseMimeType: "application/json" },
-  });
-
-  const text = response.text;
-  if (!text) throw new Error("Empty response from Gemini");
-  return JSON.parse(text);
+  return generateJson<GenResult>({ prompt: generationPrompt });
 }
 
 export function clearCaseStudyQuestion(interviewId: string) {

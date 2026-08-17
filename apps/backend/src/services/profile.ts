@@ -1,11 +1,30 @@
 import { prisma } from "../lib/prisma";
-import { GoogleGenAI } from "@google/genai";
-import type { FailureSignalCode } from "../constants/signals";
-import { buildProfileAnalysisPrompt } from "../prompt/profile";
-
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+import { generateJson } from "@evalio/ai";
+import type { FailureSignalCode } from "@evalio/prompts";
+import { buildProfileAnalysisPrompt } from "@evalio/prompts";
 
 type Json = Record<string, unknown>;
+
+interface ProfileAnalysis {
+  communication?: { score?: number; note?: string; trend?: string };
+  technicalDepth?: { score?: number; note?: string; trend?: string };
+  problemSolving?: { score?: number; note?: string; trend?: string };
+  leadership?: { score?: number; note?: string; trend?: string };
+  patterns?: string[];
+  mostImprovedSkill?: string;
+  weakestSkill?: string;
+  signals?: Array<{
+    code?: string;
+    turnIds?: number[];
+    reason?: string;
+  }>;
+  otherSignals?: Array<{
+    label?: string;
+    turnIds?: number[];
+    reason?: string;
+  }>;
+  traits?: Record<string, { score?: number; description?: string }>;
+}
 
 async function readJson<T = Json>(val: unknown): Promise<T[]> {
   if (Array.isArray(val)) return val as T[];
@@ -47,9 +66,7 @@ export async function updateCandidateProfile(interviewId: string) {
     where: { userId: interview.userId },
   });
 
-  if (!GEMINI_API_KEY) return;
-
-  const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+  if (!Bun.env.NVIDIA_API_KEY) return;
 
   const prompt = buildProfileAnalysisPrompt({
     userName: interview.user.name ?? "Unknown",
@@ -67,19 +84,15 @@ export async function updateCandidateProfile(interviewId: string) {
   });
 
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-2.0-flash",
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-    });
+    const parsed = await generateJson<ProfileAnalysis>({ prompt });
 
-    const text = response.text ?? "";
-    const cleaned = text
-      .replace(/```json\s*/g, "")
-      .replace(/```\s*/g, "")
-      .trim();
-    const parsed = JSON.parse(cleaned);
-
-    const makeEntry = (field: string) => ({
+    const makeEntry = (
+      field:
+        | "communication"
+        | "technicalDepth"
+        | "problemSolving"
+        | "leadership",
+    ) => ({
       score: parsed[field]?.score ?? 0,
       note: parsed[field]?.note ?? "",
       interviewId,
@@ -102,8 +115,8 @@ export async function updateCandidateProfile(interviewId: string) {
     );
 
     const mappedSignals = (parsed.signals ?? []).map(
-      (s: { code: string; turnIds?: number[]; reason?: string }) => ({
-        code: s.code as FailureSignalCode,
+      (s: { code?: string; turnIds?: number[]; reason?: string }) => ({
+        code: (s.code ?? "OTHER") as FailureSignalCode,
         turnIds: (s.turnIds ?? [])
           .map((n: number) => turnIdByOrder.get(n))
           .filter(Boolean),
@@ -112,9 +125,9 @@ export async function updateCandidateProfile(interviewId: string) {
     );
 
     const mappedOther = (parsed.otherSignals ?? []).map(
-      (s: { label: string; turnIds?: number[]; reason?: string }) => ({
+      (s: { label?: string; turnIds?: number[]; reason?: string }) => ({
         code: "OTHER" as const,
-        label: s.label,
+        label: s.label ?? "",
         turnIds: (s.turnIds ?? [])
           .map((n: number) => turnIdByOrder.get(n))
           .filter(Boolean),
